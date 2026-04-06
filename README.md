@@ -17,9 +17,21 @@ Laeuft komplett lokal — kein Cloud-Account, kein Internet noetig.
 
 ## Installation
 
+### Raspberry Pi (empfohlen)
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/benjiwald/wald-ems/main/scripts/install.sh | sudo bash
 ```
+
+### Docker (NAS, Server, Ubuntu, etc.)
+
+```bash
+git clone https://github.com/benjiwald/wald-ems.git
+cd wald-ems
+docker compose up -d
+```
+
+Config liegt dann in `./data/wald-ems.yaml`.
 
 ## Konfiguration
 

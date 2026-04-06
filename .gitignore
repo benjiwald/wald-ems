@@ -9,4 +9,5 @@ __pycache__/
 *.pyc
 venv/
 dist/
+data/
 .DS_Store

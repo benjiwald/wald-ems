@@ -1,0 +1,11 @@
+services:
+  wald-ems:
+    build: .
+    container_name: wald-ems
+    restart: unless-stopped
+    ports:
+      - "7777:7777"
+    volumes:
+      - ./data:/data
+    # Fuer Modbus TCP: Container braucht Zugang zum lokalen Netzwerk
+    network_mode: host
