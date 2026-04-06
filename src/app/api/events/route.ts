@@ -5,34 +5,50 @@ export const dynamic = "force-dynamic";
 export async function GET(): Promise<Response> {
   const encoder = new TextEncoder();
   let lastUpdated = "";
+  let closed = false;
 
   const stream = new ReadableStream({
     start(controller) {
+      function send(text: string) {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(text));
+        } catch {
+          closed = true;
+          clearInterval(interval);
+        }
+      }
+
       const interval = setInterval(() => {
+        if (closed) { clearInterval(interval); return; }
         try {
           const state = getState("site_state") as Record<string, unknown> & { updated_at?: string } | null;
           const updatedAt = state?.updated_at as string || "";
 
           if (updatedAt !== lastUpdated) {
             lastUpdated = updatedAt;
-            const data = `data: ${JSON.stringify(state)}\n\n`;
-            controller.enqueue(encoder.encode(data));
+            send(`data: ${JSON.stringify(state)}\n\n`);
           }
         } catch {
+          closed = true;
           clearInterval(interval);
-          controller.close();
+          try { controller.close(); } catch { /* already closed */ }
         }
       }, 2000);
 
-      // Cleanup on disconnect
-      const cleanup = () => clearInterval(interval);
-      controller.enqueue(encoder.encode(": connected\n\n"));
+      send(": connected\n\n");
 
       // Close after 5 minutes (client should reconnect)
       setTimeout(() => {
-        cleanup();
-        try { controller.close(); } catch { /* already closed */ }
+        clearInterval(interval);
+        if (!closed) {
+          closed = true;
+          try { controller.close(); } catch { /* already closed */ }
+        }
       }, 5 * 60 * 1000);
+    },
+    cancel() {
+      closed = true;
     },
   });
 
