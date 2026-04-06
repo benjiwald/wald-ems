@@ -18,12 +18,15 @@ interface SiteState {
     name: string;
     mode: string;
     status: string;
-    power_w: number;
-    current_a: number;
+    power_w?: number;
+    charging_power_w?: number;
+    current_a?: number;
+    target_current_a?: number;
     phases: number;
-    session_energy_kwh: number;
+    session_energy_kwh?: number;
+    energy_kwh?: number;
     vehicle?: string;
-    vehicle_soc?: number;
+    vehicle_soc?: number | null;
   }>;
   updated_at?: string;
 }
@@ -142,12 +145,12 @@ export default function Dashboard() {
               <LoadpointCard
                 key={lp.name}
                 name={lp.name}
-                mode={lp.mode}
-                status={lp.status}
-                power_w={lp.power_w}
-                current_a={lp.current_a}
-                phases={lp.phases}
-                energy_kwh={lp.session_energy_kwh}
+                mode={lp.mode || "off"}
+                status={lp.status || "disconnected"}
+                power_w={lp.power_w || lp.charging_power_w || 0}
+                current_a={lp.current_a || lp.target_current_a || 0}
+                phases={lp.phases || 1}
+                energy_kwh={lp.session_energy_kwh || lp.energy_kwh || 0}
                 vehicle={lp.vehicle}
                 vehicle_soc={lp.vehicle_soc}
                 onModeChange={(mode) => handleModeChange(lp.name, mode)}

@@ -51,7 +51,7 @@ export default function LoadpointCard({
       <div className="mb-4">
         <p className="mono text-2xl font-bold">{formatPower(power_w)}</p>
         <p className="text-xs text-muted-foreground">
-          {current_a}A / {phases}P &middot; {energy_kwh.toFixed(1)} kWh
+          {current_a || 0}A / {phases}P &middot; {(energy_kwh || 0).toFixed(1)} kWh
         </p>
       </div>
 
