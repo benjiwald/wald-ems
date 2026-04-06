@@ -6,6 +6,37 @@ import yaml
 
 log = logging.getLogger("ems.config")
 
+# ── Default Register-Maps für bekannte Gerätetypen ─────────────────────────
+# In der Cloud-Version (Wania EMS) kommen diese aus der Datenbank.
+# Hier werden sie als Defaults eingebaut, damit die YAML einfach bleibt.
+
+DEFAULT_REGISTER_MAPS = {
+    "victron_venus_system": {
+        "grid_power_l1":     {"address": 820, "type": "int16",  "scale": 1, "unit": "W", "metric_key": "grid_w"},
+        "grid_power_l2":     {"address": 821, "type": "int16",  "scale": 1, "unit": "W"},
+        "grid_power_l3":     {"address": 822, "type": "int16",  "scale": 1, "unit": "W"},
+        "battery_power":     {"address": 842, "type": "int16",  "scale": 1, "unit": "W", "metric_key": "battery_w"},
+        "battery_soc":       {"address": 843, "type": "uint16", "scale": 1, "unit": "%", "metric_key": "battery_soc"},
+        "battery_voltage":   {"address": 840, "type": "uint16", "scale": 0.1, "unit": "V"},
+        "battery_current":   {"address": 841, "type": "int16",  "scale": 0.1, "unit": "A"},
+        "ac_consumption_l1": {"address": 817, "type": "uint16", "scale": 1, "unit": "W", "metric_key": "consumption_w"},
+        "ac_consumption_l2": {"address": 818, "type": "uint16", "scale": 1, "unit": "W"},
+        "ac_consumption_l3": {"address": 819, "type": "uint16", "scale": 1, "unit": "W"},
+        "pv_power":          {"address": 850, "type": "uint16", "scale": 1, "unit": "W", "metric_key": "pv_w"},
+    },
+    "sma_sunnyboy": {
+        "dc_power":      {"address": 30773, "type": "int32", "scale": 1, "unit": "W", "metric_key": "pv_w"},
+        "ac_power":      {"address": 30775, "type": "int32", "scale": 1, "unit": "W"},
+        "total_yield":   {"address": 30529, "type": "uint32", "scale": 1, "unit": "Wh"},
+        "daily_yield":   {"address": 30535, "type": "uint32", "scale": 1, "unit": "Wh"},
+    },
+    "fronius_symo": {
+        "ac_power":      {"address": 40092, "type": "float32", "scale": 1, "unit": "W", "metric_key": "pv_w"},
+        "ac_frequency":  {"address": 40094, "type": "float32", "scale": 1, "unit": "Hz"},
+        "total_yield":   {"address": 40096, "type": "float32", "scale": 1, "unit": "Wh"},
+    },
+}
+
 
 class ConfigManager:
     """Verwaltet Assets, Loadpoints und Site-Config aus YAML-Datei.
@@ -123,8 +154,13 @@ class ConfigManager:
                 "modbus_port": meter.get("port", 502),
                 "modbus_unit_id": meter.get("unit_id", 1),
             }
+            # Register-Map: explizit aus YAML, oder Default für bekannten Typ
+            driver_type = meter.get("type", "generic_modbus")
             if "register_map" in meter:
                 asset["modbus_register_map"] = meter["register_map"]
+            elif driver_type in DEFAULT_REGISTER_MAPS:
+                asset["modbus_register_map"] = DEFAULT_REGISTER_MAPS[driver_type]
+                log.debug("Default Register-Map für %s eingesetzt", driver_type)
             self.assets.append(asset)
 
         # Chargers → Assets
