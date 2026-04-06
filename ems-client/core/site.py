@@ -122,13 +122,19 @@ class Site:
                        self.grid_power_w, self.pv_power_w, self.battery_power_w,
                        self.battery_soc, self.consumption_w, list(m.keys()))
         else:
-            # Fallback: ABC Interface
+            # Fallback: ABC Interface (wenn kein _last_metrics vorhanden)
             self.grid_power_w = self.grid_meter.current_power() if self.grid_meter else 0
             self.pv_power_w = self._read_pv_power()
             self._read_battery()
-            self.consumption_w = (
-                self.consumption_meter.current_power() if self.consumption_meter else 0
-            )
+            # Consumption: bevorzugt consumption_power() (z.B. VenusOS),
+            # sonst current_power() (generisches Meter)
+            if self.consumption_meter:
+                if hasattr(self.consumption_meter, 'consumption_power'):
+                    self.consumption_w = self.consumption_meter.consumption_power()
+                elif self.consumption_meter is not self.grid_meter:
+                    self.consumption_w = self.consumption_meter.current_power()
+                else:
+                    self.consumption_w = 0  # Gleicher Meter wie Grid → aus _last_metrics
 
         # 2. Verfügbare Leistung berechnen (wie evcc)
         #
@@ -216,7 +222,10 @@ class Site:
         """Liest PV-Leistung von allen PV-Quellen."""
         total = 0.0
         for pv in self.pv_meters:
-            if hasattr(pv, "pv_power_mppt"):
+            if hasattr(pv, "pv_power"):
+                # VenusOS: pv_power() liest System-Register 850 + MPPT
+                total += pv.pv_power()
+            elif hasattr(pv, "pv_power_mppt"):
                 total += pv.pv_power_mppt()
             elif isinstance(pv, Meter):
                 total += abs(pv.current_power())
@@ -225,7 +234,12 @@ class Site:
     def _read_battery(self):
         if self.battery:
             self.battery_soc = self.battery.soc()
-            self.battery_power_w = self.battery.current_power()
+            # battery_power() bevorzugen (gibt echte Battery-Werte),
+            # current_power() wuerde bei VenusOS Grid-Werte liefern!
+            if hasattr(self.battery, 'battery_power'):
+                self.battery_power_w = self.battery.battery_power()
+            else:
+                self.battery_power_w = self.battery.current_power()
         else:
             self.battery_soc = 0
             self.battery_power_w = 0

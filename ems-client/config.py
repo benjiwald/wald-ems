@@ -35,6 +35,27 @@ DEFAULT_REGISTER_MAPS = {
         "ac_frequency":  {"address": 40094, "type": "float32", "scale": 1, "unit": "Hz"},
         "total_yield":   {"address": 40096, "type": "float32", "scale": 1, "unit": "Wh"},
     },
+    # NRG Kick Gen2 Local API — alle Holding Registers, LSW word order
+    # Doku: https://nrgkick.com/wp-content/uploads/local_api_docu_simulate-1.html
+    "nrgkick_modbus": {
+        "charging_power":       {"address": 210, "type": "int32",  "scale": 0.001, "unit": "W", "word_order": "lsw", "metric_key": "charging_power_w"},
+        "session_energy":       {"address": 203, "type": "uint32", "scale": 1,     "unit": "Wh", "word_order": "lsw", "metric_key": "session_energy_wh"},
+        "total_energy":         {"address": 199, "type": "uint64", "scale": 1,     "unit": "Wh", "word_order": "lsw"},
+        "current_l1":           {"address": 220, "type": "uint16", "scale": 0.001, "unit": "A"},
+        "current_l2":           {"address": 221, "type": "uint16", "scale": 0.001, "unit": "A"},
+        "current_l3":           {"address": 222, "type": "uint16", "scale": 0.001, "unit": "A"},
+        "voltage_l1":           {"address": 217, "type": "uint16", "scale": 0.01,  "unit": "V"},
+        "voltage_l2":           {"address": 218, "type": "uint16", "scale": 0.01,  "unit": "V"},
+        "voltage_l3":           {"address": 219, "type": "uint16", "scale": 0.01,  "unit": "V"},
+        "power_l1":             {"address": 224, "type": "int32",  "scale": 0.001, "unit": "W", "word_order": "lsw"},
+        "power_l2":             {"address": 226, "type": "int32",  "scale": 0.001, "unit": "W", "word_order": "lsw"},
+        "power_l3":             {"address": 228, "type": "int32",  "scale": 0.001, "unit": "W", "word_order": "lsw"},
+        "charging_state":       {"address": 251, "type": "uint16", "scale": 1,     "unit": ""},
+        "max_current_setpoint": {"address": 194, "type": "uint16", "scale": 0.1,   "unit": "A", "writable": True},
+        "charging_pause":       {"address": 195, "type": "uint16", "scale": 1,     "unit": "",  "writable": True},
+        "phase_count_max":      {"address": 198, "type": "uint16", "scale": 1,     "unit": "",  "writable": True},
+        "max_signaled_current": {"address": 206, "type": "uint16", "scale": 0.1,   "unit": "A"},
+    },
 }
 
 
@@ -187,8 +208,13 @@ class ConfigManager:
                     "timeout_ms": charger.get("timeout_ms", 3000),
                 },
             }
+            # Register-Map: explizit aus YAML, oder Default für bekannten Typ
+            charger_driver_type = charger.get("type", "generic_modbus")
             if "register_map" in charger:
                 asset["modbus_register_map"] = charger["register_map"]
+            elif charger_driver_type in DEFAULT_REGISTER_MAPS:
+                asset["modbus_register_map"] = DEFAULT_REGISTER_MAPS[charger_driver_type]
+                log.debug("Default Register-Map für Charger %s eingesetzt", charger_driver_type)
             self.assets.append(asset)
 
         # Loadpoints (referenzieren Chargers/Meters per Name)

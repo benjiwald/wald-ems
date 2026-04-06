@@ -4,11 +4,12 @@ Liest Register-Adressen aus der DB-Config (modbus_register_map).
 Fügt spezifische Methoden für Energiebilanz hinzu (grid, battery, pv, consumption).
 
 Register-Map kommt aus der assets-Tabelle, z.B.:
-  grid_power_l1:     {address: 820, type: int16, scale: 1, metric_key: grid_power}
+  grid_power_l1:     {address: 820, type: int16, scale: 1, metric_key: grid_w}
   grid_power_l2:     {address: 821, type: int16, scale: 1}
   battery_soc:       {address: 843, type: uint16, scale: 1}
   battery_power:     {address: 842, type: int16, scale: 1}
   ac_consumption_l1: {address: 817, type: uint16, scale: 1}
+  pv_power:          {address: 850, type: uint16, scale: 1}
 """
 
 import logging
@@ -23,7 +24,12 @@ log = logging.getLogger("ems.drivers.victron")
 
 @register("victron_venus_system")
 class VenusOSSystem(Meter, Battery, PhasePowers):
-    """Venus OS System-Aggregator — liest Register aus DB-Config."""
+    """Venus OS System-Aggregator — liest Register aus DB-Config.
+
+    Implementiert Meter, Battery UND PhasePowers Interface.
+    site.py liest bevorzugt aus _last_metrics (nach poll_all()),
+    Fallback über die einzelnen Methoden.
+    """
 
     def __init__(self, config: dict):
         conn_params = config.get("connection_params") or {}
@@ -39,6 +45,8 @@ class VenusOSSystem(Meter, Battery, PhasePowers):
 
         self._conn: ModbusConnection | None = None
         self._cache: dict[str, float] = {}
+        # _last_metrics: wird von site.py gelesen (primärer Pfad)
+        self._last_metrics: dict[str, float] = {}
 
     def _get_conn(self) -> ModbusConnection:
         if self._conn is None:
@@ -58,18 +66,11 @@ class VenusOSSystem(Meter, Battery, PhasePowers):
         )
         return val if val is not None else 0.0
 
-    # ── Meter Interface ───────────────────────────────────────────────────────
+    # ── Meter Interface (Grid Power) ─────────────────────────────────────────
 
     def current_power(self) -> float:
-        """Grid Power L1+L2+L3 in Watt."""
-        l1 = self._read_reg("grid_power_l1")
-        l2 = self._read_reg("grid_power_l2")
-        l3 = self._read_reg("grid_power_l3")
-        mk1 = self.register_map.get("grid_power_l1", {}).get("metric_key", "grid_power")
-        self._cache[mk1] = l1
-        self._cache["grid_power_l2"] = l2
-        self._cache["grid_power_l3"] = l3
-        return l1 + l2 + l3
+        """Grid Power L1+L2+L3 in Watt (Meter Interface)."""
+        return self.grid_power()
 
     # ── Battery Interface ─────────────────────────────────────────────────────
 
@@ -78,23 +79,24 @@ class VenusOSSystem(Meter, Battery, PhasePowers):
         self._cache["battery_soc"] = val
         return val
 
-    def current_power(self) -> float:
-        """Grid Power — aber Battery braucht auch current_power.
-        Rufe explizit grid_power() oder battery_power() auf."""
-        # Default: Grid Power
-        return self.grid_power()
+    # NOTE: Battery.current_power() wuerde auch grid_power() aufrufen (da
+    # Python nur EINE current_power() haben kann). Deshalb liest site.py
+    # battery_power direkt aus _last_metrics["battery_power"].
+    # Fallback _read_battery() nutzt battery_power() explizit.
 
     def grid_power(self) -> float:
+        """Grid Power L1+L2+L3."""
         l1 = self._read_reg("grid_power_l1")
         l2 = self._read_reg("grid_power_l2")
         l3 = self._read_reg("grid_power_l3")
-        mk1 = self.register_map.get("grid_power_l1", {}).get("metric_key", "grid_power")
-        self._cache[mk1] = l1
+        self._cache["grid_power"] = l1 + l2 + l3
+        self._cache["grid_power_l1"] = l1
         self._cache["grid_power_l2"] = l2
         self._cache["grid_power_l3"] = l3
         return l1 + l2 + l3
 
     def battery_power(self) -> float:
+        """Battery Power in Watt (positiv=laden, negativ=entladen)."""
         val = self._read_reg("battery_power")
         self._cache["battery_power"] = val
         return val
@@ -103,7 +105,7 @@ class VenusOSSystem(Meter, Battery, PhasePowers):
 
     def powers(self) -> tuple[float, float, float]:
         return (
-            self._cache.get("grid_power", 0),
+            self._cache.get("grid_power_l1", 0),
             self._cache.get("grid_power_l2", 0),
             self._cache.get("grid_power_l3", 0),
         )
@@ -111,6 +113,7 @@ class VenusOSSystem(Meter, Battery, PhasePowers):
     # ── Erweiterte Methoden ───────────────────────────────────────────────────
 
     def consumption_power(self) -> float:
+        """AC Consumption L1+L2+L3."""
         l1 = self._read_reg("ac_consumption_l1")
         l2 = self._read_reg("ac_consumption_l2")
         l3 = self._read_reg("ac_consumption_l3")
@@ -129,6 +132,16 @@ class VenusOSSystem(Meter, Battery, PhasePowers):
         self._cache["battery_current"] = val
         return val
 
+    def pv_power(self) -> float:
+        """PV Power — zuerst System-Register (850), dann MPPT-Tracker."""
+        # System-Register pv_power (Venus OS com.victronenergy.system, Reg 850)
+        system_pv = self._read_reg("pv_power")
+        if system_pv > 0:
+            self._cache["pv_power"] = system_pv
+            return system_pv
+        # Fallback: MPPT-Tracker einzeln abfragen
+        return self.pv_power_mppt()
+
     def pv_power_mppt(self) -> float:
         """Liest PV von konfigurierten MPPT-Trackern (separate Assets)."""
         total = 0.0
@@ -139,18 +152,50 @@ class VenusOSSystem(Meter, Battery, PhasePowers):
             key = f"pv_mppt_{i}"
             self._cache[key] = val if val is not None else 0.0
             total += self._cache[key]
+        if total > 0:
+            self._cache["pv_power"] = total
         return total
 
-    # ── Telemetrie ────────────────────────────────────────────────────────────
+    # ── Telemetrie & Polling ─────────────────────────────────────────────────
 
     def poll_all(self) -> dict[str, float]:
-        """Pollt alle Register aus der DB-Config."""
+        """Pollt alle Register und baut _last_metrics für site.py auf."""
+        # Alle Register aus Config lesen
         for key, reg in self.register_map.items():
             val = self._read_reg(key)
             metric_key = reg.get("metric_key", key)
             self._cache[metric_key] = val
-        # MPPT separat
-        self.pv_power_mppt()
+
+        # Grid Power aggregiert berechnen
+        # metric_key für grid_power_l1 ist "grid_w", für L2/L3 bleibt der key
+        grid_l1 = self._cache.get("grid_w", 0) or self._cache.get("grid_power_l1", 0)
+        grid_l2 = self._cache.get("grid_power_l2", 0)
+        grid_l3 = self._cache.get("grid_power_l3", 0)
+        grid_total = grid_l1 + grid_l2 + grid_l3
+        self._cache["grid_power_total"] = grid_total  # site.py liest diesen Key zuerst
+        self._cache["grid_power"] = grid_total
+        self._cache["grid_power_l1"] = grid_l1
+
+        # Consumption aggregiert
+        # metric_key für ac_consumption_l1 ist "consumption_w"
+        cons_l1 = self._cache.get("consumption_w", 0) or self._cache.get("ac_consumption_l1", 0)
+        cons_l2 = self._cache.get("ac_consumption_l2", 0)
+        cons_l3 = self._cache.get("ac_consumption_l3", 0)
+        cons_total = cons_l1 + cons_l2 + cons_l3
+        self._cache["consumption"] = cons_total  # site.py liest diesen Key
+        self._cache["ac_consumption_l1"] = cons_l1
+        self._cache["ac_consumption_l2"] = cons_l2
+        self._cache["ac_consumption_l3"] = cons_l3
+
+        # PV: System-Register (metric_key pv_w) oder MPPT
+        pv_system = self._cache.get("pv_w", 0) or self._cache.get("pv_power", 0)
+        mppt_total = self.pv_power_mppt()  # MPPT separat
+        self._cache["pv_power"] = pv_system + mppt_total
+
+        # _last_metrics aktualisieren — site.py liest hieraus
+        self._last_metrics = dict(self._cache)
+
+        log.debug("Venus poll_all: %s", {k: round(v, 1) for k, v in self._last_metrics.items()})
         return dict(self._cache)
 
     def get_telemetry_metrics(self) -> list[dict]:
