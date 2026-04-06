@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=ems
 WorkingDirectory=/opt/ems/dashboard
-ExecStart=/usr/bin/node /opt/ems/dashboard/.next/standalone/server.js
+ExecStart=/usr/bin/node /opt/ems/dashboard/server.js
 Restart=always
 RestartSec=10
 Environment=PORT=7777

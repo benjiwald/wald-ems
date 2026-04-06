@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Header from "@/components/dashboard/Header";
 import EnergyFlow from "@/components/dashboard/EnergyFlow";
 import LoadpointCard from "@/components/dashboard/LoadpointCard";
@@ -33,8 +34,24 @@ const EMPTY_STATE: SiteState = {
 };
 
 export default function Dashboard() {
+  const router = useRouter();
+  const [configChecked, setConfigChecked] = useState(false);
   const [state, setState] = useState<SiteState>(EMPTY_STATE);
   const [connected, setConnected] = useState(false);
+
+  // Check if system is configured; redirect to /setup if not
+  useEffect(() => {
+    fetch("/api/config/status")
+      .then(r => r.json())
+      .then(data => {
+        if (data.configured === false) {
+          router.push("/setup");
+        } else {
+          setConfigChecked(true);
+        }
+      })
+      .catch(() => setConfigChecked(true)); // on error, show dashboard anyway
+  }, [router]);
 
   // SSE connection for real-time updates
   useEffect(() => {
@@ -87,6 +104,14 @@ export default function Dashboard() {
   const timeSince = state.updated_at
     ? `${Math.round((Date.now() - new Date(state.updated_at + "Z").getTime()) / 1000)}s`
     : "---";
+
+  if (!configChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin h-8 w-8 border-2 border-current border-t-transparent rounded-full" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">
