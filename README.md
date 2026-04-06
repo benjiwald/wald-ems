@@ -13,7 +13,7 @@ Laeuft komplett lokal — kein Cloud-Account, kein Internet noetig.
 - PV-Prognose (forecast.solar)
 - Dynamischer Tarif (aWATTar)
 - Modbus TCP (Victron, NRG Kick, SMA, Fronius, Shelly)
-- Web-Dashboard auf Port 3000
+- Web-Dashboard auf Port 7777
 
 ## Installation
 
@@ -59,7 +59,7 @@ Dann Services neu starten:
 sudo systemctl restart wald-ems-client
 ```
 
-Dashboard oeffnen: `http://<raspberry-ip>:3000`
+Dashboard oeffnen: `http://<raspberry-ip>:7777`
 
 ## Architektur
 
@@ -70,7 +70,7 @@ Dashboard oeffnen: `http://<raspberry-ip>:3000`
 │  ┌──────────────┐  ┌──────────────────┐ │
 │  │  Next.js      │  │  Python Client   │ │
 │  │  Dashboard    │  │  (Modbus/Control)│ │
-│  │  :3000        │  │                  │ │
+│  │  :7777        │  │                  │ │
 │  └──────┬───────┘  └────────┬─────────┘ │
 │         │    SQLite          │           │
 │         └────────┬───────────┘           │
@@ -105,7 +105,7 @@ sudo systemctl restart wald-ems-client
 ```bash
 # Dashboard
 npm install
-npm run dev   # http://localhost:3000
+npm run dev -- -p 7777  # http://localhost:7777
 
 # Python Client
 cd ems-client
