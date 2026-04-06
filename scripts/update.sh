@@ -30,6 +30,10 @@ if [ ! -d "$INSTALL_DIR" ]; then
 fi
 
 cd "$INSTALL_DIR"
+
+# Git safe.directory (noetig wenn root auf Repo von ems-User zugreift)
+git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
+
 OLD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 # ── 1. Pre-built Release herunterladen ──────────────────────────────
@@ -38,9 +42,19 @@ echo -e "${YELLOW}[1/3] Neues Release herunterladen...${NC}"
 
 # Config und DB sichern
 BACKUP_YAML=""
+BACKUP_DB=""
 if [ -f "$INSTALL_DIR/wald-ems.yaml" ]; then
     cp "$INSTALL_DIR/wald-ems.yaml" /tmp/wald-ems-yaml-backup
     BACKUP_YAML="1"
+fi
+if [ -f "$INSTALL_DIR/wald-ems.db" ]; then
+    cp "$INSTALL_DIR/wald-ems.db" /tmp/wald-ems-db-backup
+    BACKUP_DB="1"
+fi
+# venv nicht ueberschreiben — merken ob es existiert
+HAD_VENV=""
+if [ -d "$INSTALL_DIR/venv" ]; then
+    HAD_VENV="1"
 fi
 
 if curl -fsSL -o /tmp/wald-ems.tar.gz "$RELEASE_URL" 2>/dev/null; then
@@ -81,11 +95,16 @@ else
     [ -d "$INSTALL_DIR/public" ] && cp -a "$INSTALL_DIR/public" "$INSTALL_DIR/dashboard/public"
 fi
 
-# Config wiederherstellen
+# Config und DB wiederherstellen
 if [ "$BACKUP_YAML" = "1" ]; then
     cp /tmp/wald-ems-yaml-backup "$INSTALL_DIR/wald-ems.yaml"
     rm /tmp/wald-ems-yaml-backup
     echo -e "  wald-ems.yaml beibehalten"
+fi
+if [ "$BACKUP_DB" = "1" ]; then
+    cp /tmp/wald-ems-db-backup "$INSTALL_DIR/wald-ems.db"
+    rm /tmp/wald-ems-db-backup
+    echo -e "  wald-ems.db beibehalten"
 fi
 
 # Git-Repo aktualisieren (fuer Update-Check im Dashboard)

@@ -102,6 +102,7 @@ else
 fi
 
 # Git-Repo auch holen (fuer Updates aus dem Dashboard)
+git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
 if [ ! -d "$INSTALL_DIR/.git" ]; then
     echo -e "  Git-Repo fuer Updates einrichten..."
     cd "$INSTALL_DIR"
