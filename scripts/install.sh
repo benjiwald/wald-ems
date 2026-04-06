@@ -91,7 +91,7 @@ fi
 # better-sqlite3 muss nativ fuer diese Plattform kompiliert werden
 echo -e "  Native Module fuer $(uname -m) kompilieren..."
 cd "$INSTALL_DIR/dashboard"
-npm install better-sqlite3 --build-from-source 2>&1 | tail -3
+npm rebuild better-sqlite3 2>&1 | tail -3
 echo -e "${GREEN}  Native Module kompiliert${NC}"
 
 # Git-Repo auch holen (fuer Updates aus dem Dashboard)

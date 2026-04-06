@@ -51,7 +51,7 @@ if curl -fsSL -o /tmp/wald-ems.tar.gz "$RELEASE_URL" 2>/dev/null; then
     # better-sqlite3 nativ kompilieren (einziger native-build auf dem Pi)
     echo -e "  Native Module aktualisieren..."
     cd "$INSTALL_DIR/dashboard"
-    npm install better-sqlite3 --build-from-source 2>&1 | tail -3
+    npm rebuild better-sqlite3 2>&1 | tail -3
 
     echo -e "${GREEN}  Release installiert${NC}"
 else
