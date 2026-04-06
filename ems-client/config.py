@@ -153,6 +153,13 @@ class ConfigManager:
                 "modbus_host": meter.get("host", ""),
                 "modbus_port": meter.get("port", 502),
                 "modbus_unit_id": meter.get("unit_id", 1),
+                # connection_params: Format das die Drivers erwarten
+                "connection_params": {
+                    "host": meter.get("host", ""),
+                    "port": meter.get("port", 502),
+                    "unit_id": meter.get("unit_id", 1),
+                    "timeout_ms": meter.get("timeout_ms", 3000),
+                },
             }
             # Register-Map: explizit aus YAML, oder Default für bekannten Typ
             driver_type = meter.get("type", "generic_modbus")
@@ -173,6 +180,12 @@ class ConfigManager:
                 "modbus_host": charger.get("host", ""),
                 "modbus_port": charger.get("port", 502),
                 "modbus_unit_id": charger.get("unit_id", 1),
+                "connection_params": {
+                    "host": charger.get("host", ""),
+                    "port": charger.get("port", 502),
+                    "unit_id": charger.get("unit_id", 1),
+                    "timeout_ms": charger.get("timeout_ms", 3000),
+                },
             }
             if "register_map" in charger:
                 asset["modbus_register_map"] = charger["register_map"]
