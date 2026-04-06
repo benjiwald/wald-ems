@@ -1,0 +1,76 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Next.js standalone
+        run: npm run build
+
+      - name: Package release
+        run: |
+          mkdir -p release/dashboard/.next
+          cp -a .next/standalone/. release/dashboard/
+          cp -a .next/static release/dashboard/.next/static
+          [ -d public ] && cp -a public release/dashboard/public || true
+
+          cp -a ems-client release/ems-client
+          cp -a migrations release/migrations
+          cp -a scripts release/scripts
+          cp wald-ems.yaml.example release/
+          cp CLAUDE.md release/
+          cp README.md release/
+          cp package.json release/
+
+          # Cleanup: Python cache, tests, etc.
+          find release -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+          find release -name "*.pyc" -delete 2>/dev/null || true
+
+          cd release && tar -czf ../wald-ems.tar.gz . && cd ..
+          echo "RELEASE_SIZE=$(du -h wald-ems.tar.gz | cut -f1)" >> $GITHUB_ENV
+
+      - name: Get short SHA
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Delete old release (if exists)
+        run: gh release delete latest --yes 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release
+        run: |
+          gh release create latest \
+            --title "Wald EMS (latest build)" \
+            --notes "Automatischer Build von \`${{ env.SHORT_SHA }}\` ($(date -u +%Y-%m-%d %H:%M UTC))
+
+          **Installation:**
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/benjiwald/wald-ems/main/scripts/install.sh | sudo bash
+          \`\`\`
+
+          **Update:**
+          \`\`\`bash
+          sudo /opt/ems/scripts/update.sh
+          \`\`\`
+
+          Paketgroesse: ${{ env.RELEASE_SIZE }}" \
+            --latest \
+            wald-ems.tar.gz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
