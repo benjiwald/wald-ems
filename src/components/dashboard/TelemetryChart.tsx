@@ -33,7 +33,7 @@ export default function TelemetryChart() {
               timeMap.set(p.timestamp, { timestamp: p.timestamp, grid_w: 0, pv_w: 0, consumption_w: 0, battery_w: 0 });
             }
             const entry = timeMap.get(p.timestamp)!;
-            if (metric in entry) (entry as Record<string, unknown>)[metric] = p.value;
+            if (metric in entry) (entry as unknown as Record<string, number>)[metric] = p.value;
           }
         }
 
@@ -82,8 +82,8 @@ export default function TelemetryChart() {
               <YAxis tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" tickFormatter={v => `${(v / 1000).toFixed(1)}kW`} />
               <Tooltip
                 contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "0.5rem", fontSize: 12 }}
-                labelFormatter={formatTime}
-                formatter={(value: number) => [`${(value / 1000).toFixed(2)} kW`]}
+                labelFormatter={(label) => formatTime(String(label))}
+                formatter={(value) => [`${(Number(value) / 1000).toFixed(2)} kW`]}
               />
               <Area type="monotone" dataKey="pv_w" name="PV" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.1} strokeWidth={2} />
               <Area type="monotone" dataKey="consumption_w" name="Verbrauch" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.1} strokeWidth={2} />
