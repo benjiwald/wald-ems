@@ -9,7 +9,14 @@ export function getDb(): Database.Database {
   if (_db) return _db;
 
   const config = getConfig();
-  const dbPath = config.database?.path || path.join(process.cwd(), "wald-ems.db");
+  let dbPath = config.database?.path || "wald-ems.db";
+
+  // Relative Pfade relativ zum Install-Verzeichnis aufloesen (nicht cwd)
+  // Python-Client und Dashboard muessen dieselbe DB nutzen
+  if (!path.isAbsolute(dbPath)) {
+    const installDir = process.env.WALD_EMS_INSTALL_DIR || "/opt/ems";
+    dbPath = path.join(installDir, dbPath);
+  }
 
   // Ensure directory exists
   const dir = path.dirname(dbPath);
