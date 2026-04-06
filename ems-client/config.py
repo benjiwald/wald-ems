@@ -93,6 +93,7 @@ class ConfigManager:
             "priority_soc": site.get("priority_soc", 0),
             "grid_price_eur_kwh": site.get("grid_price_eur_kwh", 0.27),
             "feedin_price_eur_kwh": site.get("feedin_price_eur_kwh", 0.065),
+            "demo": site.get("demo", False),
         }
 
         # Forecast in site_config einbauen (für build_site Kompatibilität)

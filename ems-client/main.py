@@ -239,6 +239,21 @@ def main():
     db.publish_log("info", f"Wald EMS gestartet: {len(config.assets)} Geräte, "
                            f"{len(site.loadpoints if site else [])} Ladepunkte")
 
+    # ── Demo-Modus ───────────────────────────────────────────────────────────
+
+    demo_mode = (
+        os.environ.get("WALD_EMS_DEMO", "").strip() in ("1", "true", "yes")
+        or config.site_config.get("demo", False)
+        or (not config.assets and not drivers)
+    )
+
+    demo_site = None
+    if demo_mode:
+        from demo import DemoSite
+        log.info("═══ DEMO-MODUS aktiv — Simulationsdaten ═══")
+        demo_site = DemoSite(config.site_config)
+        db.publish_log("info", "Demo-Modus aktiv — keine echte Hardware")
+
     # ── Regelschleife ────────────────────────────────────────────────────────
 
     last_control_time = 0.0
@@ -275,88 +290,102 @@ def main():
         if now - last_control_time >= config.control_interval:
             last_control_time = now
 
-            # 1. Alle Geräte abfragen
-            for asset_id, drv in drivers.items():
+            if demo_mode and demo_site:
+                # Demo: Simulationsdaten erzeugen und in DB schreiben
                 try:
-                    if hasattr(drv, "poll"):
-                        drv.poll()
-                    elif hasattr(drv, "poll_all"):
-                        drv.poll_all()
-                except Exception as e:
-                    log.debug("Poll-Fehler %s: %s", asset_id, e)
-
-            # 2. Fahrzeug-SoC pollen
-            for vid, vdrv in _vehicle_drivers.items():
-                try:
-                    vdrv.poll()
-                    for lp in (site.loadpoints if site else []):
-                        if getattr(lp, '_vehicle_driver', None) is vdrv:
-                            lp.vehicle_soc = vdrv.soc
-                except Exception as e:
-                    log.debug("Vehicle-Poll %s: %s", vid, e)
-
-            # 3. Forecast + Tariff pollen
-            if site:
-                if site.solar_forecast:
-                    try:
-                        site.solar_forecast.poll()
-                    except Exception as e:
-                        log.debug("Forecast-Poll Fehler: %s", e)
-                if site.tariff:
-                    try:
-                        site.tariff.poll()
-                    except Exception as e:
-                        log.debug("Tariff-Poll Fehler: %s", e)
-                    for lp in site.loadpoints:
-                        lp.tariff = site.tariff
-
-            # 4. Site Regelung
-            if site:
-                try:
-                    site_state = site.update()
-
-                    # Site State alle 10s in DB schreiben (für Dashboard)
+                    demo_state = demo_site.update()
                     if now - last_site_state_time >= 10:
                         last_site_state_time = now
-                        db.publish_site_state(site_state)
-
-                    # Abgeschlossene Sessions speichern
-                    for lp in site.loadpoints:
-                        for session in lp.pop_completed_sessions():
-                            db.write_session(session)
-                            db.publish_log("info",
-                                f"Ladesession beendet: {session.get('energy_kwh', 0):.2f} kWh "
-                                f"in {session.get('duration_s', 0) / 60:.0f} Min")
-
+                        db.publish_site_state(demo_state)
                 except Exception as e:
-                    log.error("Regelschleife Fehler: %s", e)
+                    log.error("Demo-Regelschleife Fehler: %s", e)
+            else:
+                # 1. Alle Geräte abfragen
+                for asset_id, drv in drivers.items():
+                    try:
+                        if hasattr(drv, "poll"):
+                            drv.poll()
+                        elif hasattr(drv, "poll_all"):
+                            drv.poll_all()
+                    except Exception as e:
+                        log.debug("Poll-Fehler %s: %s", asset_id, e)
+
+                # 2. Fahrzeug-SoC pollen
+                for vid, vdrv in _vehicle_drivers.items():
+                    try:
+                        vdrv.poll()
+                        for lp in (site.loadpoints if site else []):
+                            if getattr(lp, '_vehicle_driver', None) is vdrv:
+                                lp.vehicle_soc = vdrv.soc
+                    except Exception as e:
+                        log.debug("Vehicle-Poll %s: %s", vid, e)
+
+                # 3. Forecast + Tariff pollen
+                if site:
+                    if site.solar_forecast:
+                        try:
+                            site.solar_forecast.poll()
+                        except Exception as e:
+                            log.debug("Forecast-Poll Fehler: %s", e)
+                    if site.tariff:
+                        try:
+                            site.tariff.poll()
+                        except Exception as e:
+                            log.debug("Tariff-Poll Fehler: %s", e)
+                        for lp in site.loadpoints:
+                            lp.tariff = site.tariff
+
+                # 4. Site Regelung
+                if site:
+                    try:
+                        site_state = site.update()
+
+                        # Site State alle 10s in DB schreiben (für Dashboard)
+                        if now - last_site_state_time >= 10:
+                            last_site_state_time = now
+                            db.publish_site_state(site_state)
+
+                        # Abgeschlossene Sessions speichern
+                        for lp in site.loadpoints:
+                            for session in lp.pop_completed_sessions():
+                                db.write_session(session)
+                                db.publish_log("info",
+                                    f"Ladesession beendet: {session.get('energy_kwh', 0):.2f} kWh "
+                                    f"in {session.get('duration_s', 0) / 60:.0f} Min")
+
+                    except Exception as e:
+                        log.error("Regelschleife Fehler: %s", e)
 
         # ── Telemetrie (30s) ─────────────────────────────────────────────────
         if now - last_telemetry_time >= config.telemetry_interval:
             last_telemetry_time = now
             all_metrics = []
 
-            for asset_id, drv in drivers.items():
-                try:
-                    if hasattr(drv, "get_telemetry_metrics"):
-                        metrics = drv.get_telemetry_metrics()
-                        all_metrics.extend(metrics)
-                except Exception as e:
-                    log.error("Telemetrie-Fehler für %s: %s", asset_id, e)
+            if demo_mode and demo_site:
+                # Demo: Telemetrie aus Simulationsdaten
+                all_metrics = demo_site.get_telemetry_metrics()
+            else:
+                for asset_id, drv in drivers.items():
+                    try:
+                        if hasattr(drv, "get_telemetry_metrics"):
+                            metrics = drv.get_telemetry_metrics()
+                            all_metrics.extend(metrics)
+                    except Exception as e:
+                        log.error("Telemetrie-Fehler für %s: %s", asset_id, e)
 
-            # Forecast + Tarif Metriken
-            if site and site.solar_forecast:
-                fc = site.solar_forecast
-                all_metrics.extend([
-                    {"metric_type": "forecast_current_w", "value": fc.current_estimate_w, "unit": "W"},
-                    {"metric_type": "forecast_today_kwh", "value": fc.today_kwh, "unit": "kWh"},
-                    {"metric_type": "forecast_remaining_kwh", "value": fc.remaining_today_kwh, "unit": "kWh"},
-                ])
-            if site and site.tariff:
-                tf = site.tariff
-                all_metrics.extend([
-                    {"metric_type": "tariff_current_ct", "value": tf.current_price_ct, "unit": "ct/kWh"},
-                ])
+                # Forecast + Tarif Metriken
+                if site and site.solar_forecast:
+                    fc = site.solar_forecast
+                    all_metrics.extend([
+                        {"metric_type": "forecast_current_w", "value": fc.current_estimate_w, "unit": "W"},
+                        {"metric_type": "forecast_today_kwh", "value": fc.today_kwh, "unit": "kWh"},
+                        {"metric_type": "forecast_remaining_kwh", "value": fc.remaining_today_kwh, "unit": "kWh"},
+                    ])
+                if site and site.tariff:
+                    tf = site.tariff
+                    all_metrics.extend([
+                        {"metric_type": "tariff_current_ct", "value": tf.current_price_ct, "unit": "ct/kWh"},
+                    ])
 
             if all_metrics:
                 db.publish_telemetry(all_metrics)

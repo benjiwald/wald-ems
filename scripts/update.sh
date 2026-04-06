@@ -57,6 +57,11 @@ if [ -d "$INSTALL_DIR/venv" ]; then
     HAD_VENV="1"
 fi
 
+# .git sichern (wird fuer Update-Check im Dashboard gebraucht)
+if [ -d "$INSTALL_DIR/.git" ]; then
+    cp -a "$INSTALL_DIR/.git" /tmp/wald-ems-git-backup
+fi
+
 if curl -fsSL -o /tmp/wald-ems.tar.gz "$RELEASE_URL" 2>/dev/null; then
     echo -e "  Release heruntergeladen — entpacke..."
     tar -xzf /tmp/wald-ems.tar.gz -C "$INSTALL_DIR"
@@ -105,6 +110,12 @@ if [ "$BACKUP_DB" = "1" ]; then
     cp /tmp/wald-ems-db-backup "$INSTALL_DIR/wald-ems.db"
     rm /tmp/wald-ems-db-backup
     echo -e "  wald-ems.db beibehalten"
+fi
+
+# .git wiederherstellen
+if [ -d /tmp/wald-ems-git-backup ]; then
+    rm -rf "$INSTALL_DIR/.git"
+    mv /tmp/wald-ems-git-backup "$INSTALL_DIR/.git"
 fi
 
 # Git-Repo aktualisieren (fuer Update-Check im Dashboard)
