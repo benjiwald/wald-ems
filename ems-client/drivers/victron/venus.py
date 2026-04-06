@@ -187,6 +187,12 @@ class VenusOSSystem(Meter, Battery, PhasePowers):
         self._cache["ac_consumption_l2"] = cons_l2
         self._cache["ac_consumption_l3"] = cons_l3
 
+        # Battery: metric_key ist "battery_w", aber site.py liest "battery_power"
+        bat_power = self._cache.get("battery_w", 0) or self._cache.get("battery_power", 0)
+        self._cache["battery_power"] = bat_power
+
+        # Battery SoC: metric_key ist schon "battery_soc" → passt
+
         # PV: System-Register (metric_key pv_w) oder MPPT
         pv_system = self._cache.get("pv_w", 0) or self._cache.get("pv_power", 0)
         mppt_total = self.pv_power_mppt()  # MPPT separat

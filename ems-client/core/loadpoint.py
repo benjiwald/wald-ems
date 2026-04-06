@@ -164,6 +164,7 @@ class Loadpoint:
 
         # Kein Fahrzeug verbunden → nichts zu tun
         if self._status == "A":
+            self._charging_power_w = 0  # Nicht laden → 0W anzeigen
             self._target_current_a = 0
             self._enabled = False
             self._enable_timer = None
