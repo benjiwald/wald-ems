@@ -1,0 +1,19 @@
+[Unit]
+Description=Wald EMS Dashboard (Next.js)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ems
+WorkingDirectory=/opt/ems/dashboard
+ExecStart=/usr/bin/node /opt/ems/dashboard/.next/standalone/server.js
+Restart=always
+RestartSec=10
+Environment=PORT=3000
+Environment=HOSTNAME=0.0.0.0
+Environment=WALD_EMS_CONFIG=/opt/ems/wald-ems.yaml
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

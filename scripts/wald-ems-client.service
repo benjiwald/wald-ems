@@ -1,0 +1,17 @@
+[Unit]
+Description=Wald EMS Client (Modbus + Regelung)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ems
+WorkingDirectory=/opt/ems
+ExecStart=/opt/ems/venv/bin/python /opt/ems/ems-client/main.py
+Restart=always
+RestartSec=10
+Environment=WALD_EMS_CONFIG=/opt/ems/wald-ems.yaml
+Environment=LOG_LEVEL=INFO
+
+[Install]
+WantedBy=multi-user.target

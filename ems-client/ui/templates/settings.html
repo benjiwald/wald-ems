@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2 class="text-lg font-bold text-white mb-4">Einstellungen</h2>
+
+{% for lp in state.loadpoints|default([]) %}
+<div class="rounded-2xl bg-[#131921] border border-gray-800/50 p-5 mb-4">
+  <h3 class="text-base font-bold text-white mb-4">{{ lp.name }}</h3>
+
+  <div class="space-y-4">
+    <!-- Max Strom -->
+    <div>
+      <label class="text-xs text-gray-400 uppercase tracking-wider">Maximaler Ladestrom</label>
+      <div class="flex items-center gap-3 mt-1">
+        <input type="range" min="6" max="32" value="{{ lp.max_current }}"
+          class="flex-1 h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer"
+          oninput="this.nextElementSibling.textContent=this.value+'A'"
+          onchange="setMaxCurrent('{{ lp.id }}', parseInt(this.value))">
+        <span class="text-sm font-bold text-white mono w-10 text-right">{{ "%.0f"|format(lp.max_current) }}A</span>
+      </div>
+    </div>
+
+    <!-- Phasen -->
+    <div>
+      <label class="text-xs text-gray-400 uppercase tracking-wider">Phasen</label>
+      <div class="flex gap-2 mt-1">
+        {% for p in [1, 2, 3] %}
+        <button onclick="setPhases('{{ lp.id }}', {{ p }})"
+          class="px-4 py-2 text-sm rounded-lg {% if lp.phases == p %}bg-white text-black font-bold{% else %}bg-gray-800 text-gray-400 hover:text-white{% endif %}">
+          {{ p }}P
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Target SoC -->
+    <div>
+      <label class="text-xs text-gray-400 uppercase tracking-wider">Ziel-SoC</label>
+      <div class="flex items-center gap-3 mt-1">
+        <input type="range" min="20" max="100" step="5" value="{{ lp.target_soc }}"
+          class="flex-1 h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer"
+          oninput="this.nextElementSibling.textContent=this.value+'%'"
+          onchange="setTargetSoc('{{ lp.id }}', parseInt(this.value))">
+        <span class="text-sm font-bold text-white mono w-10 text-right">{{ "%.0f"|format(lp.target_soc) }}%</span>
+      </div>
+    </div>
+
+    <!-- Min SoC -->
+    <div>
+      <label class="text-xs text-gray-400 uppercase tracking-wider">Min-SoC</label>
+      <div class="flex items-center gap-3 mt-1">
+        <input type="range" min="0" max="50" step="5" value="{{ lp.min_soc }}"
+          class="flex-1 h-1.5 bg-gray-700 rounded-full appearance-none cursor-pointer"
+          oninput="this.nextElementSibling.textContent=this.value+'%'"
+          onchange="setMinSoc('{{ lp.id }}', parseInt(this.value))">
+        <span class="text-sm font-bold text-white mono w-10 text-right">{{ "%.0f"|format(lp.min_soc) }}%</span>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<!-- System Info -->
+<div class="rounded-2xl bg-[#131921] border border-gray-800/50 p-5">
+  <h3 class="text-base font-bold text-white mb-3">System</h3>
+  <div class="space-y-2 text-sm">
+    <div class="flex justify-between"><span class="text-gray-500">Standort</span><span class="text-white">{{ site_name }}</span></div>
+    <div class="flex justify-between"><span class="text-gray-500">Regelintervall</span><span class="text-white mono">10s</span></div>
+    <div class="flex justify-between"><span class="text-gray-500">Telemetrie</span><span class="text-white mono">30s</span></div>
+  </div>
+</div>
+
+<script>
+window.setPhases = function(lpId, phases) {
+  fetch('/api/loadpoint/' + lpId + '/phases', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({phases: phases})
+  }).then(() => location.reload());
+};
+
+window.setMinSoc = function(lpId, soc) {
+  fetch('/api/loadpoint/' + lpId + '/min-soc', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({soc: soc})
+  });
+};
+</script>
+
+{% endblock %}

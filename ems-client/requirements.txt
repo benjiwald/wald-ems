@@ -1,0 +1,20 @@
+# Wald EMS Client — Python Dependencies
+# Kein MQTT nötig (lokaler SQLite-Betrieb)
+
+# Core
+pymodbus>=3.5
+pyyaml>=6.0
+
+# Lokales Dashboard (FastAPI)
+fastapi>=0.109
+uvicorn>=0.25
+jinja2>=3.1
+
+# Optional: Fahrzeug-APIs
+# renault-api>=0.2
+
+# Optional: KNX
+# xknx>=2.0
+
+# Optional: M-Bus
+# pyMeterBus>=0.8

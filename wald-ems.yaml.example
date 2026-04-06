@@ -1,0 +1,68 @@
+# ──────────────────────────────────────────────────
+# Wald EMS Configuration
+# Copy to wald-ems.yaml and adjust to your setup
+# ──────────────────────────────────────────────────
+
+site:
+  name: "Mein Zuhause"
+  grid_limit_kw: 11          # Netzanschlussleistung in kW
+  buffer_w: 100              # Sicherheitspuffer in Watt
+  priority_soc: 0            # Batterie-Prioritaets-SoC (0 = aus)
+  grid_price_eur_kwh: 0.27   # Strombezugspreis
+  feedin_price_eur_kwh: 0.065 # Einspeiseverguetung
+
+# ── Messgeraete / Wechselrichter ──
+meters:
+  - name: "Victron System"
+    type: victron_venus_system
+    host: 192.168.1.70
+    port: 502
+    unit_id: 100
+
+# ── Ladestationen ──
+chargers:
+  - name: "Wallbox"
+    type: nrgkick_modbus
+    host: 192.168.1.84
+    port: 502
+    unit_id: 1
+
+# ── Ladepunkte ──
+loadpoints:
+  - name: "Garage"
+    charger: "Wallbox"       # Referenz auf charger.name
+    mode: pv                 # off | now | pv | min_pv
+    min_current: 6           # Ampere
+    max_current: 16          # Ampere
+    phases: 1
+
+# ── Fahrzeuge (optional) ──
+vehicles: []
+  # - name: "Renault Zoe"
+  #   manufacturer: renault
+  #   vin: "VF1..."
+  #   battery_kwh: 52
+  #   credentials:
+  #     email: "user@example.com"
+  #     password: "secret"
+
+# ── PV-Prognose (optional) ──
+# forecast:
+#   lat: 47.07
+#   lon: 15.44
+#   planes:
+#     - name: "Dach Sued"
+#       kwp: 5.0
+#       declination: 30
+#       azimuth: 0
+
+# ── Dynamischer Tarif (optional) ──
+# tariff:
+#   provider: awattar
+#   country: at
+#   markup_ct: 3.0
+
+# ── Datenbank ──
+database:
+  path: ./wald-ems.db
+  retention_days: 30

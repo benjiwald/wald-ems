@@ -1,0 +1,156 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import Header from "@/components/dashboard/Header";
+import EnergyFlow from "@/components/dashboard/EnergyFlow";
+import LoadpointCard from "@/components/dashboard/LoadpointCard";
+import TelemetryChart from "@/components/dashboard/TelemetryChart";
+
+interface SiteState {
+  site_name?: string;
+  grid_w: number;
+  pv_w: number;
+  battery_w: number;
+  battery_soc: number;
+  consumption_w: number;
+  loadpoints: Array<{
+    name: string;
+    mode: string;
+    status: string;
+    power_w: number;
+    current_a: number;
+    phases: number;
+    session_energy_kwh: number;
+    vehicle?: string;
+    vehicle_soc?: number;
+  }>;
+  updated_at?: string;
+}
+
+const EMPTY_STATE: SiteState = {
+  grid_w: 0, pv_w: 0, battery_w: 0, battery_soc: 0, consumption_w: 0,
+  loadpoints: [],
+};
+
+export default function Dashboard() {
+  const [state, setState] = useState<SiteState>(EMPTY_STATE);
+  const [connected, setConnected] = useState(false);
+
+  // SSE connection for real-time updates
+  useEffect(() => {
+    let es: EventSource | null = null;
+    let retryTimeout: NodeJS.Timeout;
+
+    function connect() {
+      es = new EventSource("/api/events");
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          setState(data);
+          setConnected(true);
+        } catch { /* ignore parse errors */ }
+      };
+      es.onerror = () => {
+        es?.close();
+        setConnected(false);
+        retryTimeout = setTimeout(connect, 5000);
+      };
+    }
+
+    connect();
+    return () => {
+      es?.close();
+      clearTimeout(retryTimeout);
+    };
+  }, []);
+
+  // Fallback: poll every 10s if SSE fails
+  useEffect(() => {
+    if (connected) return;
+    const interval = setInterval(() => {
+      fetch("/api/state")
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data && !data.status) setState(data); })
+        .catch(() => {});
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [connected]);
+
+  const handleModeChange = useCallback((loadpointName: string, mode: string) => {
+    fetch("/api/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set_mode", loadpoint: loadpointName, mode }),
+    });
+  }, []);
+
+  const timeSince = state.updated_at
+    ? `${Math.round((Date.now() - new Date(state.updated_at + "Z").getTime()) / 1000)}s`
+    : "---";
+
+  return (
+    <div className="min-h-screen">
+      <Header />
+      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+        {/* Status bar */}
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{state.site_name || "Wald EMS"}</span>
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${connected ? "bg-status-online glow-dot" : "bg-status-offline"}`} />
+            <span>Aktualisiert vor {timeSince}</span>
+          </div>
+        </div>
+
+        {/* Energy flow */}
+        <EnergyFlow
+          grid_w={state.grid_w}
+          pv_w={state.pv_w}
+          battery_w={state.battery_w}
+          battery_soc={state.battery_soc}
+          consumption_w={state.consumption_w}
+        />
+
+        {/* Loadpoints */}
+        {state.loadpoints.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {state.loadpoints.map(lp => (
+              <LoadpointCard
+                key={lp.name}
+                name={lp.name}
+                mode={lp.mode}
+                status={lp.status}
+                power_w={lp.power_w}
+                current_a={lp.current_a}
+                phases={lp.phases}
+                energy_kwh={lp.session_energy_kwh}
+                vehicle={lp.vehicle}
+                vehicle_soc={lp.vehicle_soc}
+                onModeChange={(mode) => handleModeChange(lp.name, mode)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Chart */}
+        <TelemetryChart />
+
+        {/* KPI row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <KPICard label="PV heute" value={`${(state.pv_w / 1000).toFixed(1)} kW`} />
+          <KPICard label="Netzbezug" value={`${(Math.max(0, state.grid_w) / 1000).toFixed(1)} kW`} />
+          <KPICard label="Einspeisung" value={`${(Math.abs(Math.min(0, state.grid_w)) / 1000).toFixed(1)} kW`} />
+          <KPICard label="Batterie" value={`${state.battery_soc}%`} />
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function KPICard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="glass-panel rounded-xl p-4 text-center">
+      <p className="text-xs text-muted-foreground mb-1">{label}</p>
+      <p className="mono text-lg font-semibold">{value}</p>
+    </div>
+  );
+}

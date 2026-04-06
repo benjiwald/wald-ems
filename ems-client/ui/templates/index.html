@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Energy Flow Cards (evcc-Style) -->
+<div class="grid grid-cols-3 gap-3 mb-4">
+  <!-- PV / Erzeugung -->
+  <div class="rounded-2xl bg-[#131921] border border-gray-800/50 p-4">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-[11px] font-semibold text-yellow-400/80 uppercase tracking-wider">Erzeugung</span>
+      <span class="text-yellow-400">&#9788;</span>
+    </div>
+    <div class="text-2xl font-black text-white mono leading-tight">
+      {% if state.pv_w|default(0) >= 1000 %}{{ "%.1f"|format(state.pv_w / 1000) }}{% else %}{{ "%.0f"|format(state.pv_w|default(0)) }}{% endif %}
+    </div>
+    <div class="text-xs text-gray-500 mono">{% if state.pv_w|default(0) >= 1000 %}kW{% else %}W{% endif %}</div>
+  </div>
+
+  <!-- Verbrauch -->
+  <div class="rounded-2xl bg-[#131921] border border-gray-800/50 p-4">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-[11px] font-semibold text-green-400/80 uppercase tracking-wider">Verbrauch</span>
+      <svg class="w-4 h-4 text-green-400/60" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
+    </div>
+    <div class="text-2xl font-black text-white mono leading-tight">
+      {% if state.consumption_w|default(0) >= 1000 %}{{ "%.1f"|format(state.consumption_w / 1000) }}{% else %}{{ "%.0f"|format(state.consumption_w|default(0)) }}{% endif %}
+    </div>
+    <div class="text-xs text-gray-500 mono">{% if state.consumption_w|default(0) >= 1000 %}kW{% else %}W{% endif %}</div>
+  </div>
+
+  <!-- Netz -->
+  <div class="rounded-2xl bg-[#131921] border border-gray-800/50 p-4">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-[11px] font-semibold {% if state.grid_w|default(0) < -50 %}text-green-400/80{% elif state.grid_w|default(0) > 50 %}text-red-400/80{% else %}text-gray-400/80{% endif %} uppercase tracking-wider">Netz</span>
+      <svg class="w-4 h-4 {% if state.grid_w|default(0) < -50 %}text-green-400/60{% elif state.grid_w|default(0) > 50 %}text-red-400/60{% else %}text-gray-500{% endif %}" fill="currentColor" viewBox="0 0 20 20"><path d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"/></svg>
+    </div>
+    <div class="text-2xl font-black text-white mono leading-tight">
+      {% set grid_abs = state.grid_w|default(0)|abs %}
+      {% if grid_abs >= 1000 %}{{ "%.1f"|format(grid_abs / 1000) }}{% else %}{{ "%.0f"|format(grid_abs) }}{% endif %}
+    </div>
+    <div class="flex items-center gap-1">
+      <span class="text-xs {% if state.grid_w|default(0) < -50 %}text-green-500{% elif state.grid_w|default(0) > 50 %}text-red-400{% else %}text-gray-500{% endif %} mono">{% if grid_abs >= 1000 %}kW{% else %}W{% endif %}</span>
+      {% if state.grid_w|default(0) < -50 %}<span class="text-[10px] text-green-500">↑ Einspeisung</span>{% elif state.grid_w|default(0) > 50 %}<span class="text-[10px] text-red-400">↓ Bezug</span>{% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Batterie Card -->
+{% if state.battery_soc|default(0) > 0 or state.battery_w|default(0) != 0 %}
+<div class="rounded-2xl bg-[#131921] border border-gray-800/50 p-4 mb-4">
+  <div class="flex items-center justify-between">
+    <div>
+      <span class="text-[11px] font-semibold text-green-400/80 uppercase tracking-wider">Speicher</span>
+      <div class="flex items-center gap-3 mt-1">
+        <span class="text-3xl font-black text-white mono">{{ "%.0f"|format(state.battery_soc|default(0)) }}%</span>
+        <span class="text-gray-600 text-lg">·</span>
+        <div>
+          {% if state.battery_w|default(0) > 50 %}
+          <span class="text-xs text-green-400">↑ Ladung</span>
+          {% elif state.battery_w|default(0) < -50 %}
+          <span class="text-xs text-orange-400">↓ Entladung</span>
+          {% else %}
+          <span class="text-xs text-gray-500">Standby</span>
+          {% endif %}
+          <div class="text-lg font-bold text-white mono">
+            {% set bat_abs = state.battery_w|default(0)|abs %}
+            {% if bat_abs >= 1000 %}{{ "%.2f kW"|format(bat_abs / 1000) }}{% else %}{{ "%.0f W"|format(bat_abs) }}{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Battery Icon -->
+    <div class="relative w-14 h-9 border-2 {% if state.battery_soc|default(0) > 20 %}border-green-400/60{% else %}border-red-400/60{% endif %} rounded-lg overflow-hidden">
+      <div class="absolute right-[-5px] top-1/2 -translate-y-1/2 w-[3px] h-3 {% if state.battery_soc|default(0) > 20 %}bg-green-400/60{% else %}bg-red-400/60{% endif %} rounded-r-sm"></div>
+      <div class="{% if state.battery_soc|default(0) > 20 %}bg-green-400/25{% else %}bg-red-400/25{% endif %} h-full transition-all" style="width: {{ state.battery_soc|default(0) }}%"></div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Energiemix Bar (3 Quellen: PV, Batterie, Netz) -->
+{% set pv_pct = state.pv_pct|default(0) %}
+{% set bat_pct = state.bat_pct|default(0) %}
+{% set grid_pct = state.grid_pct|default(0) %}
+{% if pv_pct > 0 or bat_pct > 0 or grid_pct > 0 %}
+<div class="rounded-2xl bg-[#131921] border border-gray-800/50 p-4 mb-4">
+  <div class="flex justify-between text-[11px] font-semibold mb-2 flex-wrap gap-1">
+    {% if pv_pct > 0 %}<span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-yellow-400"></span> PV {{ pv_pct }}%</span>{% endif %}
+    {% if bat_pct > 0 %}<span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-green-500"></span> Batterie {{ bat_pct }}%</span>{% endif %}
+    {% if grid_pct > 0 %}<span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-400"></span> Netz {{ grid_pct }}%</span>{% endif %}
+  </div>
+  <div class="flex h-2 rounded-full overflow-hidden bg-gray-800">
+    {% if pv_pct > 0 %}<div class="bg-yellow-400 transition-all" style="width: {{ pv_pct }}%"></div>{% endif %}
+    {% if bat_pct > 0 %}<div class="bg-green-500 transition-all" style="width: {{ bat_pct }}%"></div>{% endif %}
+    {% if grid_pct > 0 %}<div class="bg-blue-400 transition-all" style="width: {{ grid_pct }}%"></div>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- In/Out Bilanz -->
+<div class="rounded-2xl bg-[#131921] border border-gray-800/50 p-5 mb-4">
+  <!-- In -->
+  <div class="flex justify-between items-center mb-3">
+    <span class="text-sm font-bold text-white">In</span>
+    <span class="text-sm font-bold text-white mono">{% if state.in_total_w|default(0) >= 1000 %}{{ "%.1f kW"|format(state.in_total_w / 1000) }}{% else %}{{ "%.0f W"|format(state.in_total_w|default(0)) }}{% endif %}</span>
+  </div>
+  <div class="space-y-2 mb-4">
+    {% if state.pv_w|default(0) > 0 %}
+    <div class="flex items-center justify-between text-sm">
+      <span class="flex items-center gap-2 text-gray-400"><span class="text-yellow-400">☀</span> Erzeugung</span>
+      <span class="mono text-gray-300">{% if state.pv_w|default(0) >= 1000 %}{{ "%.1f kW"|format(state.pv_w / 1000) }}{% else %}{{ "%.0f W"|format(state.pv_w|default(0)) }}{% endif %}</span>
+    </div>
+    {% endif %}
+    {% if state.battery_w|default(0) < -50 %}
+    <div class="flex items-center justify-between text-sm">
+      <span class="flex items-center gap-2 text-gray-400"><span class="text-green-400">▪</span> Batterie entladen</span>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-gray-500">{{ "%.0f"|format(state.battery_soc|default(0)) }}%</span>
+        <span class="mono text-gray-300">{{ "%.1f kW"|format((-state.battery_w) / 1000) }}</span>
+      </div>
+    </div>
+    {% endif %}
+    {% if state.grid_w|default(0) > 50 %}
+    <div class="flex items-center justify-between text-sm">
+      <span class="flex items-center gap-2 text-gray-400"><span class="text-red-400">⚡</span> Netz</span>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-gray-500">{{ state.grid_price_ct|default(27) }} ct</span>
+        <span class="mono text-gray-300">{{ "%.1f kW"|format(state.grid_w / 1000) }}</span>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Trennlinie -->
+  <div class="border-t border-gray-800/50 my-3"></div>
+
+  <!-- Out -->
+  <div class="flex justify-between items-center mb-3">
+    <span class="text-sm font-bold text-white">Out</span>
+    <span class="text-sm font-bold text-white mono">{% if state.out_total_w|default(0) >= 1000 %}{{ "%.1f kW"|format(state.out_total_w / 1000) }}{% else %}{{ "%.0f W"|format(state.out_total_w|default(0)) }}{% endif %}</span>
+  </div>
+  <div class="space-y-2">
+    <div class="flex items-center justify-between text-sm">
+      <span class="flex items-center gap-2 text-gray-400">🏠 Verbrauch</span>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-gray-500">{{ state.grid_price_ct|default(27) }} ct</span>
+        <span class="mono text-gray-300">{% if state.consumption_w|default(0) >= 1000 %}{{ "%.1f kW"|format(state.consumption_w / 1000) }}{% else %}{{ "%.0f W"|format(state.consumption_w|default(0)) }}{% endif %}</span>
+      </div>
+    </div>
+    {% for lp in state.loadpoints|default([]) %}
+    <div class="flex items-center justify-between text-sm">
+      <span class="flex items-center gap-2 text-gray-400">🚗 {{ lp.name }}</span>
+      <span class="mono text-gray-300">{% if lp.charging_power_w >= 1000 %}{{ "%.1f kW"|format(lp.charging_power_w / 1000) }}{% else %}{{ "%.0f W"|format(lp.charging_power_w) }}{% endif %}</span>
+    </div>
+    {% endfor %}
+    {% if state.battery_w|default(0) > 50 %}
+    <div class="flex items-center justify-between text-sm">
+      <span class="flex items-center gap-2 text-gray-400"><span class="text-green-400">▪</span> Batterie laden</span>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-gray-500">{{ "%.0f"|format(state.battery_soc|default(0)) }}%</span>
+        <span class="mono text-gray-300">{{ "%.1f kW"|format(state.battery_w / 1000) }}</span>
+      </div>
+    </div>
+    {% endif %}
+    {% if state.grid_w|default(0) < -50 %}
+    <div class="flex items-center justify-between text-sm">
+      <span class="flex items-center gap-2 text-gray-400"><span class="text-yellow-400">⚡</span> Einspeisung</span>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-gray-500">-{{ state.feedin_price_ct|default(6.5) }} ct</span>
+        <span class="mono text-gray-300">{{ "%.1f kW"|format((-state.grid_w) / 1000) }}</span>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Loadpoints -->
+{% for lp in state.loadpoints|default([]) %}
+<div class="rounded-2xl bg-[#1a2332] border border-gray-800/50 p-5 mb-4">
+  <div class="flex items-center justify-between mb-4">
+    <h3 class="text-base font-bold text-white">{{ lp.name }}</h3>
+    <a href="/settings" class="text-gray-500 hover:text-white">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+    </a>
+  </div>
+
+  <!-- Mode Buttons -->
+  <div class="flex gap-1 mb-4 bg-[#0f1923] rounded-xl p-1">
+    {% for mode, label in [("off", "Aus"), ("pv", "PV"), ("min_pv", "Min+PV"), ("now", "Schnell")] %}
+    <button
+      onclick="setMode('{{ lp.id }}', '{{ mode }}')"
+      class="flex-1 py-2 text-xs font-semibold rounded-lg transition-all
+        {% if lp.mode == mode %}bg-white text-black{% else %}text-gray-400 hover:text-white hover:bg-white/5{% endif %}"
+    >{{ label }}</button>
+    {% endfor %}
+  </div>
+
+  <!-- Status Badge -->
+  <div class="flex items-center gap-2 mb-3">
+    {% if lp.status == "C" %}
+    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 text-[11px] font-semibold">
+      <span class="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></span> Lädt
+    </span>
+    {% elif lp.status == "B" %}
+    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 text-[11px] font-semibold">
+      <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span> Verbunden
+    </span>
+    {% elif lp.status == "A" %}
+    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-500/15 text-gray-400 text-[11px] font-semibold">
+      <span class="w-1.5 h-1.5 rounded-full bg-gray-500"></span> Kein Fahrzeug
+    </span>
+    {% else %}
+    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 text-[11px] font-semibold">
+      <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span> Fehler
+    </span>
+    {% endif %}
+  </div>
+
+  <!-- Metrics -->
+  <div class="grid grid-cols-3 gap-4">
+    <div>
+      <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Leistung</p>
+      <p class="text-xl font-black text-white mono">{% if lp.charging_power_w >= 1000 %}{{ "%.1f"|format(lp.charging_power_w / 1000) }}<span class="text-sm ml-0.5">kW</span>{% else %}{{ "%.0f"|format(lp.charging_power_w) }}<span class="text-sm ml-0.5">W</span>{% endif %}</p>
+    </div>
+    <div>
+      <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Geladen</p>
+      <p class="text-xl font-black text-white mono">
+        {% if lp.wallbox_session_kwh is defined and lp.wallbox_session_kwh > 0 %}
+          {{ "%.1f"|format(lp.wallbox_session_kwh) }}<span class="text-sm ml-0.5">kWh</span>
+        {% elif lp.session %}
+          {{ "%.1f"|format(lp.session.energy_kwh|default(0)) }}<span class="text-sm ml-0.5">kWh</span>
+        {% else %}—{% endif %}
+      </p>
+    </div>
+    <div>
+      <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{% if lp.remaining_min is defined and lp.remaining_min %}Restdauer{% else %}Dauer{% endif %}</p>
+      <p class="text-xl font-black text-white mono">
+        {% if lp.remaining_min is defined and lp.remaining_min %}
+          {% if lp.remaining_min >= 60 %}{{ "%d"|format(lp.remaining_min // 60) }}:{{ "%02d"|format(lp.remaining_min % 60) }}<span class="text-sm ml-0.5">h</span>{% else %}{{ lp.remaining_min }}<span class="text-sm ml-0.5">min</span>{% endif %}
+        {% elif lp.session %}
+          {% set mins = (lp.session.duration_s|default(0) / 60)|int %}{% if mins >= 60 %}{{ "%d"|format(mins // 60) }}:{{ "%02d"|format(mins % 60) }}<span class="text-sm ml-0.5">h</span>{% else %}{{ mins }}<span class="text-sm ml-0.5">min</span>{% endif %}
+        {% else %}—{% endif %}
+      </p>
+    </div>
+  </div>
+
+  <!-- SoC + Range + Settings (nur wenn Auto angesteckt) -->
+  {% if lp.status in ["B", "C"] and lp.vehicle_soc is not none and lp.vehicle_soc > 0 %}
+  <div class="mt-4">
+    <div class="flex items-center gap-3">
+      <div class="flex-1 h-2.5 rounded-full bg-gray-800 overflow-hidden">
+        <div class="h-full bg-blue-500 transition-all" style="width: {{ lp.vehicle_soc }}%"></div>
+      </div>
+      <span class="text-sm font-bold text-white mono">{{ "%.0f"|format(lp.vehicle_soc) }}%</span>
+      <span class="text-xs text-gray-500">/ {{ "%.0f"|format(lp.target_soc) }}%</span>
+    </div>
+    {% if lp.vehicle_range_km is defined and lp.vehicle_range_km %}
+    <div class="mt-1 text-[10px] text-gray-500">Reichweite: {{ "%.0f"|format(lp.vehicle_range_km) }} km</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="mt-3 flex items-center gap-4 text-[11px] text-gray-500">
+    <span>{{ lp.phases }}P · Max {{ "%.0f"|format(lp.max_current) }}A</span>
+    <span>Ziel {{ "%.0f"|format(lp.target_soc) }}%</span>
+    <span>Min {{ "%.0f"|format(lp.min_soc) }}%</span>
+    <button
+      onclick="toggleBoost('{{ lp.id }}', {{ 'false' if lp.battery_boost|default(false) else 'true' }})"
+      class="ml-auto px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all
+        {% if lp.battery_boost|default(false) %}bg-green-500/20 text-green-400 border border-green-500/30{% else %}bg-gray-800 text-gray-500 border border-gray-700 hover:text-white{% endif %}"
+    >🔋 Boost {% if lp.battery_boost|default(false) %}AN{% else %}AUS{% endif %}</button>
+  </div>
+</div>
+{% endfor %}
+
+{% endblock %}
