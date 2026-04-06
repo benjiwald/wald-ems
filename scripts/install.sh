@@ -32,7 +32,7 @@ fi
 
 echo -e "${YELLOW}[1/6] System-Pakete installieren...${NC}"
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip curl git
+apt-get install -y -qq python3 python3-venv python3-pip curl git build-essential
 
 # Node.js 20 LTS (nur fuer die Runtime, kein Build noetig)
 if ! command -v node &>/dev/null || [[ $(node -v | cut -d. -f1 | tr -d 'v') -lt 18 ]]; then
