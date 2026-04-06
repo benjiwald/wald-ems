@@ -88,11 +88,18 @@ else
     [ -d "$INSTALL_DIR/public" ] && cp -a "$INSTALL_DIR/public" "$INSTALL_DIR/dashboard/public"
 fi
 
-# better-sqlite3 muss nativ fuer diese Plattform kompiliert werden
-echo -e "  Native Module fuer $(uname -m) kompilieren..."
-cd "$INSTALL_DIR/dashboard"
-npm rebuild better-sqlite3 2>&1 | tail -3
-echo -e "${GREEN}  Native Module kompiliert${NC}"
+# better-sqlite3: Release ist fuer x86_64 gebaut.
+# Auf ARM muss das native Module neu kompiliert werden.
+ARCH=$(uname -m)
+if [[ "$ARCH" != "x86_64" ]]; then
+    echo -e "  Native Module fuer ${ARCH} kompilieren..."
+    cd "$INSTALL_DIR/dashboard"
+    # Standalone hat nur minimale node_modules — frisch installieren
+    npm install better-sqlite3 --no-save 2>&1 | tail -5
+    echo -e "${GREEN}  better-sqlite3 fuer ${ARCH} kompiliert${NC}"
+else
+    echo -e "${GREEN}  x86_64 — pre-built binary passt${NC}"
+fi
 
 # Git-Repo auch holen (fuer Updates aus dem Dashboard)
 if [ ! -d "$INSTALL_DIR/.git" ]; then
