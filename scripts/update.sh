@@ -62,8 +62,18 @@ fi
 
 echo -e "${YELLOW}[2/4] Dashboard neu bauen...${NC}"
 cd "$INSTALL_DIR"
-npm install 2>&1 | tail -3
-npm run build 2>&1 | tail -5
+
+# build-essential sicherstellen (fuer better-sqlite3 native module)
+if ! dpkg -s build-essential &>/dev/null; then
+    echo -e "  build-essential installieren..."
+    apt-get install -y -qq build-essential python3
+fi
+
+echo -e "  npm install..."
+npm install 2>&1 || { echo -e "${RED}npm install fehlgeschlagen!${NC}"; exit 1; }
+
+echo -e "  next build..."
+npm run build 2>&1 || { echo -e "${RED}next build fehlgeschlagen!${NC}"; exit 1; }
 
 # Standalone aktualisieren
 rm -rf "$INSTALL_DIR/dashboard"
