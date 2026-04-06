@@ -53,6 +53,7 @@ if curl -fsSL -o /tmp/wald-ems.tar.gz "$RELEASE_URL" 2>/dev/null; then
     if [[ "$ARCH" != "x86_64" ]]; then
         echo -e "  Native Module fuer ${ARCH} kompilieren..."
         cd "$INSTALL_DIR/dashboard"
+        rm -rf node_modules/better-sqlite3 node_modules/.better-sqlite3*
         npm install better-sqlite3 --no-save 2>&1 | tail -5
         echo -e "${GREEN}  better-sqlite3 fuer ${ARCH} kompiliert${NC}"
     fi
