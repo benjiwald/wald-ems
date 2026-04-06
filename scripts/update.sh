@@ -96,6 +96,11 @@ fi
 # ── 2. Python Dependencies ──────────────────────────────────────────
 
 echo -e "${YELLOW}[2/3] Python-Dependencies aktualisieren...${NC}"
+if [ ! -d "$INSTALL_DIR/venv" ]; then
+    echo -e "  Python venv neu erstellen..."
+    python3 -m venv "$INSTALL_DIR/venv"
+fi
+"$INSTALL_DIR/venv/bin/pip" install --quiet --upgrade pip
 "$INSTALL_DIR/venv/bin/pip" install --quiet -r "$INSTALL_DIR/ems-client/requirements.txt"
 echo -e "${GREEN}  Dependencies aktuell${NC}"
 
