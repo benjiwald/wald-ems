@@ -152,7 +152,7 @@ export default function Dashboard() {
                 phases={lp.phases || 1}
                 energy_kwh={lp.session_energy_kwh || lp.energy_kwh || 0}
                 vehicle={lp.vehicle}
-                vehicle_soc={lp.vehicle_soc}
+                vehicle_soc={lp.vehicle_soc ?? undefined}
                 onModeChange={(mode) => handleModeChange(lp.name, mode)}
               />
             ))}
