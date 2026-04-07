@@ -396,6 +396,7 @@ class Loadpoint:
             "cost_limit_ct": self.cost_limit_ct,
             "battery_boost": self.battery_boost,
             "vehicle_soc": self.vehicle_soc,
+            "battery_kwh": getattr(self, '_vehicle_battery_kwh', None),
         }
 
         # Aktive Session

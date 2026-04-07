@@ -855,6 +855,16 @@ function TabLadepunkte({ config, editing, draft, setDraft, onAdd, onEdit, onDele
                 <option value={3}>3-phasig</option>
               </select>
             </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Ziel-SoC (%)</label>
+              <input type="number" value={draft.target_soc ?? 100} onChange={(e) => setDraft({ ...draft, target_soc: Number(e.target.value) })} className={inputClass} min={10} max={100} step={5} />
+              <p className="text-[10px] text-muted-foreground mt-1">Laden stoppt bei diesem SoC</p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Min-SoC (%)</label>
+              <input type="number" value={draft.min_soc ?? 0} onChange={(e) => setDraft({ ...draft, min_soc: Number(e.target.value) })} className={inputClass} min={0} max={100} step={5} />
+              <p className="text-[10px] text-muted-foreground mt-1">Erzwingt Laden unter diesem SoC (0 = aus)</p>
+            </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={onCancel} className="px-4 py-2 text-sm rounded-lg bg-muted hover:bg-muted/80 transition-colors">Abbrechen</button>
@@ -886,7 +896,7 @@ function TabLadepunkte({ config, editing, draft, setDraft, onAdd, onEdit, onDele
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{lp.name || "(Ohne Name)"}</p>
                     <p className="text-xs text-muted-foreground">
-                      {lp.charger} | {modeInfo?.icon} {modeInfo?.label ?? lp.mode} | {lp.min_current}–{lp.max_current} A | {lp.phases}P
+                      {lp.charger} | {modeInfo?.icon} {modeInfo?.label ?? lp.mode} | {lp.min_current}–{lp.max_current} A | {lp.phases}P{lp.target_soc && lp.target_soc < 100 ? ` | Ziel ${lp.target_soc}%` : ""}{lp.min_soc ? ` | Min ${lp.min_soc}%` : ""}
                     </p>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

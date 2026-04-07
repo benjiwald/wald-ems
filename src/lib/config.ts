@@ -34,6 +34,9 @@ export interface WaldConfig {
     min_current: number;
     max_current: number;
     phases: number;
+    target_soc?: number;
+    min_soc?: number;
+    priority?: number;
   }>;
   vehicles: Array<{
     name: string;

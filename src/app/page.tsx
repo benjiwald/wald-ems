@@ -27,6 +27,9 @@ interface SiteState {
     energy_kwh?: number;
     vehicle?: string;
     vehicle_soc?: number | null;
+    target_soc?: number;
+    min_soc?: number;
+    battery_kwh?: number;
   }>;
   updated_at?: string;
 }
@@ -153,6 +156,9 @@ export default function Dashboard() {
                 energy_kwh={lp.session_energy_kwh || lp.energy_kwh || 0}
                 vehicle={lp.vehicle}
                 vehicle_soc={lp.vehicle_soc ?? undefined}
+                target_soc={lp.target_soc}
+                min_soc={lp.min_soc}
+                battery_kwh={lp.battery_kwh}
                 onModeChange={(mode) => handleModeChange(lp.name, mode)}
               />
             ))}

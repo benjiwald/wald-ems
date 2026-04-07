@@ -1,6 +1,6 @@
 "use client";
 
-import { Plug, Car, Zap, ZapOff } from "lucide-react";
+import { Plug, Car, Zap, ZapOff, Battery, Clock } from "lucide-react";
 
 interface LoadpointProps {
   name: string;
@@ -12,6 +12,9 @@ interface LoadpointProps {
   energy_kwh: number;
   vehicle?: string;
   vehicle_soc?: number;
+  target_soc?: number;
+  min_soc?: number;
+  battery_kwh?: number;
   onModeChange: (mode: string) => void;
 }
 
@@ -27,11 +30,32 @@ function formatPower(watts: number): string {
   return `${Math.round(watts)} W`;
 }
 
+function formatDuration(minutes: number): string {
+  if (minutes < 1) return "< 1 Min";
+  if (minutes < 60) return `${Math.round(minutes)} Min`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function calcTimeToTarget(
+  currentSoc: number, targetSoc: number, batteryKwh: number, powerW: number
+): number | null {
+  if (powerW < 100 || currentSoc >= targetSoc || batteryKwh <= 0) return null;
+  const remainingKwh = ((targetSoc - currentSoc) / 100) * batteryKwh;
+  const hours = remainingKwh / (powerW / 1000);
+  return hours * 60; // minutes
+}
+
 export default function LoadpointCard({
   name, mode, status, power_w, current_a, phases, energy_kwh,
-  vehicle, vehicle_soc, onModeChange,
+  vehicle, vehicle_soc, target_soc, min_soc, battery_kwh, onModeChange,
 }: LoadpointProps) {
   const isCharging = status === "charging";
+  const effectiveTargetSoc = target_soc || 100;
+  const timeToTarget = (vehicle_soc != null && battery_kwh)
+    ? calcTimeToTarget(vehicle_soc, effectiveTargetSoc, battery_kwh, power_w)
+    : null;
 
   return (
     <div className="glass-panel rounded-2xl p-5 card-hover">
@@ -55,13 +79,42 @@ export default function LoadpointCard({
         </p>
       </div>
 
-      {/* Vehicle info */}
-      {vehicle && (
-        <div className="flex items-center gap-2 mb-4 p-2 rounded-lg bg-muted/50">
-          <Car className="w-4 h-4 text-muted-foreground" />
-          <span className="text-sm">{vehicle}</span>
+      {/* Vehicle info with SoC bar */}
+      {(vehicle || vehicle_soc != null) && (
+        <div className="mb-4 p-3 rounded-xl bg-muted/50 space-y-2">
+          <div className="flex items-center gap-2">
+            <Car className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm">{vehicle || "Fahrzeug"}</span>
+            {vehicle_soc != null && (
+              <span className="ml-auto mono text-sm font-medium">{vehicle_soc}%</span>
+            )}
+          </div>
+          {/* SoC Progress Bar */}
           {vehicle_soc != null && (
-            <span className="ml-auto mono text-sm font-medium">{vehicle_soc}%</span>
+            <div className="relative h-2.5 bg-muted rounded-full overflow-hidden">
+              <div
+                className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
+                  vehicle_soc < (min_soc || 20) ? "bg-destructive" :
+                  vehicle_soc >= effectiveTargetSoc ? "bg-primary" : "bg-primary/70"
+                }`}
+                style={{ width: `${Math.min(100, vehicle_soc)}%` }}
+              />
+              {/* Target SoC marker */}
+              {effectiveTargetSoc < 100 && (
+                <div
+                  className="absolute inset-y-0 w-0.5 bg-foreground/40"
+                  style={{ left: `${effectiveTargetSoc}%` }}
+                  title={`Ziel: ${effectiveTargetSoc}%`}
+                />
+              )}
+            </div>
+          )}
+          {/* Time to target */}
+          {isCharging && timeToTarget != null && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock className="w-3 h-3" />
+              <span>~{formatDuration(timeToTarget)} bis {effectiveTargetSoc}%</span>
+            </div>
           )}
         </div>
       )}

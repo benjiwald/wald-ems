@@ -155,7 +155,8 @@ def build_site(cfg: ConfigManager) -> Site:
                     for lp in s.loadpoints:
                         if lp.id == lp_id or lp.name == lp_id:
                             lp._vehicle_driver = rv
-                            log.info("Fahrzeug %s → LP %s", rv.name, lp.name)
+                            lp._vehicle_battery_kwh = vc.get("battery_kwh", 0)
+                            log.info("Fahrzeug %s → LP %s (%.0f kWh)", rv.name, lp.name, lp._vehicle_battery_kwh)
                 log.info("Renault-Fahrzeug geladen: %s", rv.name)
             except ImportError:
                 log.warning("renault-api nicht installiert — pip install renault-api")
