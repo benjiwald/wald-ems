@@ -233,6 +233,20 @@ class VenusOSSystem(Meter, Battery, PhasePowers):
                     "value": data[metric_key],
                     "unit": reg.get("unit", ""),
                 })
+        # Aggregierte Werte überschreiben (Register-Map schreibt nur L1,
+        # Dashboard-Chart braucht aber den Gesamtwert L1+L2+L3)
+        agg = {
+            "pv_w": data.get("pv_power", 0),
+            "grid_w": data.get("grid_power_total", 0),
+            "consumption_w": data.get("consumption", 0),
+            "battery_w": data.get("battery_power", 0),
+        }
+        for i, m in enumerate(result):
+            if m["metric_type"] in agg:
+                result[i] = {"metric_type": m["metric_type"], "value": agg.pop(m["metric_type"]), "unit": "W"}
+        # Fehlende aggregierte Keys hinzufügen
+        for k, v in agg.items():
+            result.append({"metric_type": k, "value": v, "unit": "W"})
         # MPPT Metriken
         for i in range(1, len(self.mppt_units) + 1):
             k = f"pv_mppt_{i}"
