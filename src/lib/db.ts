@@ -153,6 +153,8 @@ export interface SessionRow {
 
 export function getSessions(limit = 50): SessionRow[] {
   const db = getDb();
+  // Ghost-Sessions mit 0 kWh entfernen
+  db.prepare("DELETE FROM charging_sessions WHERE energy_kwh < 0.01").run();
   return db.prepare(
     "SELECT * FROM charging_sessions ORDER BY started_at DESC LIMIT ?"
   ).all(limit) as SessionRow[];

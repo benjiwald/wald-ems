@@ -74,15 +74,21 @@ class ChargingSession:
         return self.energy_wh / (self.duration_s / 3600)
 
     def to_dict(self) -> dict:
+        from datetime import datetime, timezone
         return {
             "loadpoint_id": self.loadpoint_id,
-            "started_at": self.started_at,
+            "loadpoint_name": self.loadpoint_id,  # write_session erwartet diesen Key
+            "started_at": datetime.fromtimestamp(self.started_at, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            "finished_at": datetime.fromtimestamp(self.finished_at, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if self.finished_at else None,
             "duration_s": round(self.duration_s),
             "energy_kwh": round(self.energy_kwh, 2),
             "avg_power_w": round(self.avg_power_w),
             "max_power_w": round(self.max_power_w),
             "mode": self.mode,
             "phases": self.phases,
+            "solar_kwh": 0,  # TODO: Solar-Anteil berechnen
+            "vehicle": None,
+            "cost_eur": 0,  # TODO: Kosten berechnen
             "active": self.finished_at is None,
         }
 
@@ -152,10 +158,13 @@ class Loadpoint:
         self._status = self.charger.status()
 
         # 2. Aktuelle Ladeleistung messen
-        if self.meter:
-            self._charging_power_w = self.meter.current_power()
+        if self._status in ("A", "B"):
+            # Nicht verbunden oder verbunden aber nicht ladend → 0W
+            self._charging_power_w = 0
+        elif self.meter:
+            self._charging_power_w = max(0, self.meter.current_power())
         elif isinstance(self.charger, Meter):
-            self._charging_power_w = self.charger.current_power()
+            self._charging_power_w = max(0, self.charger.current_power())
         else:
             self._charging_power_w = 0
 
@@ -164,7 +173,6 @@ class Loadpoint:
 
         # Kein Fahrzeug verbunden → nichts zu tun
         if self._status == "A":
-            self._charging_power_w = 0  # Nicht laden → 0W anzeigen
             self._target_current_a = 0
             self._enabled = False
             self._enable_timer = None
@@ -327,10 +335,14 @@ class Loadpoint:
             if self.vehicle_soc is not None:
                 self._session.vehicle_soc_end = self.vehicle_soc
             self._session.finish()
-            self._completed_sessions.append(self._session.to_dict())
-            log.info("LP %s: Ladesession beendet — %.2f kWh in %.0f Min",
-                     self.name, self._session.energy_kwh,
-                     self._session.duration_s / 60)
+            # Nur Sessions mit Energie speichern (keine Ghost-Sessions)
+            if self._session.energy_kwh >= 0.01:
+                self._completed_sessions.append(self._session.to_dict())
+                log.info("LP %s: Ladesession beendet — %.2f kWh in %.0f Min",
+                         self.name, self._session.energy_kwh,
+                         self._session.duration_s / 60)
+            else:
+                log.debug("LP %s: Leere Session verworfen (%.4f kWh)", self.name, self._session.energy_kwh)
             self._session = None
 
     def set_mode(self, mode: str):

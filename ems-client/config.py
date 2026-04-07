@@ -22,7 +22,14 @@ DEFAULT_REGISTER_MAPS = {
         "ac_consumption_l1": {"address": 817, "type": "uint16", "scale": 1, "unit": "W", "metric_key": "consumption_w"},
         "ac_consumption_l2": {"address": 818, "type": "uint16", "scale": 1, "unit": "W"},
         "ac_consumption_l3": {"address": 819, "type": "uint16", "scale": 1, "unit": "W"},
-        "pv_power":          {"address": 850, "type": "uint16", "scale": 1, "unit": "W", "metric_key": "pv_w"},
+        # PV: DC (MPPT) + AC (PV-Wechselrichter auf AC-Out und AC-In)
+        "pv_dc_power":       {"address": 850, "type": "uint16", "scale": 1, "unit": "W", "metric_key": "pv_dc_total"},
+        "pv_acout_l1":       {"address": 808, "type": "uint16", "scale": 1, "unit": "W"},
+        "pv_acout_l2":       {"address": 809, "type": "uint16", "scale": 1, "unit": "W"},
+        "pv_acout_l3":       {"address": 810, "type": "uint16", "scale": 1, "unit": "W"},
+        "pv_acin_l1":        {"address": 811, "type": "uint16", "scale": 1, "unit": "W"},
+        "pv_acin_l2":        {"address": 812, "type": "uint16", "scale": 1, "unit": "W"},
+        "pv_acin_l3":        {"address": 813, "type": "uint16", "scale": 1, "unit": "W"},
     },
     "sma_sunnyboy": {
         "dc_power":      {"address": 30773, "type": "int32", "scale": 1, "unit": "W", "metric_key": "pv_w"},

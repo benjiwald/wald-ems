@@ -133,14 +133,22 @@ class VenusOSSystem(Meter, Battery, PhasePowers):
         return val
 
     def pv_power(self) -> float:
-        """PV Power — zuerst System-Register (850), dann MPPT-Tracker."""
-        # System-Register pv_power (Venus OS com.victronenergy.system, Reg 850)
-        system_pv = self._read_reg("pv_power")
-        if system_pv > 0:
-            self._cache["pv_power"] = system_pv
-            return system_pv
-        # Fallback: MPPT-Tracker einzeln abfragen
-        return self.pv_power_mppt()
+        """PV Power — DC (Reg 850) + AC-Out (808-810) + AC-In (811-813)."""
+        # DC PV (MPPT-Tracker, Register 850)
+        dc_pv = self._read_reg("pv_dc_power")
+        # AC PV auf AC-Out (z.B. Fronius am AC-Ausgang des MultiPlus)
+        ac_out = (self._read_reg("pv_acout_l1") +
+                  self._read_reg("pv_acout_l2") +
+                  self._read_reg("pv_acout_l3"))
+        # AC PV auf AC-In (z.B. PV-Wechselrichter am Netz-Eingang)
+        ac_in = (self._read_reg("pv_acin_l1") +
+                 self._read_reg("pv_acin_l2") +
+                 self._read_reg("pv_acin_l3"))
+        total = dc_pv + ac_out + ac_in
+        self._cache["pv_dc_total"] = dc_pv
+        self._cache["pv_ac_total"] = ac_out + ac_in
+        self._cache["pv_power"] = total
+        return total
 
     def pv_power_mppt(self) -> float:
         """Liest PV von konfigurierten MPPT-Trackern (separate Assets)."""
@@ -193,10 +201,19 @@ class VenusOSSystem(Meter, Battery, PhasePowers):
 
         # Battery SoC: metric_key ist schon "battery_soc" → passt
 
-        # PV: System-Register (metric_key pv_w) oder MPPT
-        pv_system = self._cache.get("pv_w", 0) or self._cache.get("pv_power", 0)
-        mppt_total = self.pv_power_mppt()  # MPPT separat
-        self._cache["pv_power"] = pv_system + mppt_total
+        # PV: DC (Reg 850, metric_key pv_dc_total) + AC-Out (808-810) + AC-In (811-813)
+        dc_pv = self._cache.get("pv_dc_total", 0) or 0
+        ac_pv = (
+            (self._cache.get("pv_acout_l1", 0) or 0) +
+            (self._cache.get("pv_acout_l2", 0) or 0) +
+            (self._cache.get("pv_acout_l3", 0) or 0) +
+            (self._cache.get("pv_acin_l1", 0) or 0) +
+            (self._cache.get("pv_acin_l2", 0) or 0) +
+            (self._cache.get("pv_acin_l3", 0) or 0)
+        )
+        # MPPT-Tracker (wenn konfiguriert)
+        mppt_total = self.pv_power_mppt()
+        self._cache["pv_power"] = dc_pv + ac_pv + mppt_total
 
         # _last_metrics aktualisieren — site.py liest hieraus
         self._last_metrics = dict(self._cache)
