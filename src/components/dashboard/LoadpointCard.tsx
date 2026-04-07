@@ -1,6 +1,6 @@
 "use client";
 
-import { Plug, Car, Zap, ZapOff, Battery, Clock } from "lucide-react";
+import { Plug, Car, Zap, ZapOff, Clock } from "lucide-react";
 
 interface LoadpointProps {
   name: string;
