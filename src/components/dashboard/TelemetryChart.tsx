@@ -134,11 +134,22 @@ export default function TelemetryChart() {
                 />
               )}
               <Tooltip
-                contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "0.5rem", fontSize: 12 }}
-                labelFormatter={(label) => formatTime(String(label))}
-                formatter={(value: number, name: string) => {
-                  if (name === "Speicher %") return [`${Math.round(value)}%`, name];
-                  return [`${(value / 1000).toFixed(2)} kW`, name];
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  return (
+                    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "0.5rem", padding: "8px 12px", fontSize: 12 }}>
+                      <p style={{ marginBottom: 4, color: "var(--muted-foreground)" }}>{formatTime(String(label))}</p>
+                      {payload.map((entry: any) => (
+                        <div key={entry.dataKey} style={{ display: "flex", alignItems: "center", gap: 6, padding: "1px 0" }}>
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: entry.color, flexShrink: 0 }} />
+                          <span style={{ color: "var(--muted-foreground)" }}>{entry.name}:</span>
+                          <span style={{ fontWeight: 500, fontFamily: "var(--font-mono, monospace)" }}>
+                            {entry.name === "Speicher %" ? `${Math.round(entry.value)}%` : `${(entry.value / 1000).toFixed(2)} kW`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  );
                 }}
               />
               {/* Power series (Area) */}
