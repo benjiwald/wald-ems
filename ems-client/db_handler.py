@@ -9,7 +9,20 @@ from typing import Callable
 
 log = logging.getLogger("ems.db")
 
-VERSION = "1.0.0"
+def _get_version() -> str:
+    """Version aus Git-Commit-Hash (wie Dashboard)."""
+    try:
+        import subprocess
+        git_hash = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        return git_hash
+    except Exception:
+        return "unknown"
+
+VERSION = _get_version()
 
 
 class DBHandler:
