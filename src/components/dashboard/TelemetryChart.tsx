@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
+import { XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart, Legend } from "recharts";
 
 interface ChartData {
   timestamp: string;
@@ -85,10 +85,16 @@ export default function TelemetryChart() {
                 labelFormatter={(label) => formatTime(String(label))}
                 formatter={(value) => [`${(Number(value) / 1000).toFixed(2)} kW`]}
               />
-              <Area type="monotone" dataKey="pv_w" name="PV" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.1} strokeWidth={2} />
-              <Area type="monotone" dataKey="consumption_w" name="Verbrauch" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.1} strokeWidth={2} />
-              <Area type="monotone" dataKey="grid_w" name="Netz" stroke="#ef4444" fill="#ef4444" fillOpacity={0.1} strokeWidth={1.5} />
-              <Area type="monotone" dataKey="battery_w" name="Batterie" stroke="#a855f7" fill="#a855f7" fillOpacity={0.1} strokeWidth={1.5} />
+              <Legend
+                verticalAlign="top"
+                height={32}
+                iconType="line"
+                wrapperStyle={{ fontSize: 12, paddingBottom: 4 }}
+              />
+              <Area type="monotone" dataKey="pv_w" name="PV" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.1} strokeWidth={2} dot={false} />
+              <Area type="monotone" dataKey="consumption_w" name="Verbrauch" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.1} strokeWidth={2} dot={false} />
+              <Area type="monotone" dataKey="grid_w" name="Netz" stroke="#ef4444" fill="#ef4444" fillOpacity={0.1} strokeWidth={1.5} dot={false} />
+              <Area type="monotone" dataKey="battery_w" name="Batterie" stroke="#a855f7" fill="#a855f7" fillOpacity={0.1} strokeWidth={1.5} dot={false} />
             </AreaChart>
           </ResponsiveContainer>
         )}
