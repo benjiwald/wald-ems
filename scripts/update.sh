@@ -6,6 +6,12 @@ set -euo pipefail
 # Nutzung: sudo /opt/ems/scripts/update.sh
 # ──────────────────────────────────────────────────────────────────────
 
+# Update-Log fuer Dashboard-Anzeige
+UPDATE_LOG="/tmp/wald-ems-update.log"
+exec > >(tee -a "$UPDATE_LOG") 2>&1
+echo "" > "$UPDATE_LOG"
+echo "=== Update gestartet $(date) ==="
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'

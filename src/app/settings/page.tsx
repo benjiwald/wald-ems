@@ -1105,6 +1105,11 @@ function TabSystem({
               </div>
             )}
 
+            {/* Update-Log anzeigen waehrend Update laeuft */}
+            {updateRunning && (
+              <UpdateLog />
+            )}
+
             {updateMessage && <p className="text-sm text-muted-foreground">{updateMessage}</p>}
           </div>
         )}
@@ -1162,6 +1167,31 @@ function TabSystem({
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Update-Log Komponente ──────────────────────────────────────────────
+
+function UpdateLog() {
+  const [log, setLog] = useState("");
+
+  useEffect(() => {
+    const poll = setInterval(() => {
+      fetch("/api/update?action=log", { method: "POST" })
+        .then(r => r.json())
+        .then(data => { if (data.log) setLog(data.log); })
+        .catch(() => {});
+    }, 3000);
+    return () => clearInterval(poll);
+  }, []);
+
+  if (!log) return null;
+
+  return (
+    <div className="mt-3 p-3 rounded-xl bg-muted/30 border border-border/40">
+      <p className="text-xs font-medium text-muted-foreground mb-2">Update-Log:</p>
+      <pre className="text-xs mono whitespace-pre-wrap max-h-48 overflow-y-auto text-muted-foreground">{log}</pre>
     </div>
   );
 }

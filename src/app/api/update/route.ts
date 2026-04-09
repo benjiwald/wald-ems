@@ -76,7 +76,19 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const action = request.nextUrl.searchParams.get("action");
+
+  // GET /api/update?action=log — Update-Log lesen
+  if (action === "log") {
+    try {
+      const log = readFileSync("/tmp/wald-ems-update.log", "utf-8");
+      return NextResponse.json({ log });
+    } catch {
+      return NextResponse.json({ log: "" });
+    }
+  }
+
   const installDir = getInstallDir();
   const updateScript = path.join(installDir, "scripts", "update.sh");
 
@@ -92,7 +104,7 @@ export async function POST() {
 
     return NextResponse.json({
       ok: true,
-      message: "Update gestartet. Services werden neu gestartet — Seite laedt in 30s automatisch neu.",
+      message: "Update gestartet...",
     });
   } catch (e) {
     return NextResponse.json(

@@ -132,10 +132,11 @@ class Loadpoint:
         self._disable_timer: float | None = None
 
         # Write-on-change: letzter geschriebener Wert
-        # Start mit False: verhindert enable(False) beim ersten Zyklus
-        # (würde laufende Ladesession unterbrechen)
+        # Start mit None: erster Schreibvorgang wird immer ausgefuehrt,
+        # ABER _set_charging wird erst aufgerufen wenn should_enable=True
         self._last_written_current: float = -1
-        self._last_written_enabled: bool = False
+        self._last_written_enabled: bool | None = None
+        self._ever_enabled: bool = False  # True sobald einmal enabled
 
         # Session Tracking
         self._session: ChargingSession | None = None
@@ -217,9 +218,15 @@ class Loadpoint:
                 target_a = 0
         target_a = min(target_a, self.max_current)
 
-        # 9. An Charger schreiben
+        # 9. An Charger schreiben — aber NIE disable senden wenn noch nie enabled
+        # (verhindert Unterbrechen einer laufenden Ladesession beim Start)
         should_enable = target_a >= self.min_current
-        self._set_charging(should_enable, target_a)
+        if should_enable:
+            self._ever_enabled = True
+            self._set_charging(True, target_a)
+        elif self._ever_enabled:
+            # Nur disablen wenn vorher schon mal enabled wurde
+            self._set_charging(False, target_a)
 
         # Berechnete Leistung
         used_w = target_a * VOLTAGE * self.phases if should_enable else 0
