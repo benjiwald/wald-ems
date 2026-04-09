@@ -121,7 +121,11 @@ fi
 
 # Git-Repo aktualisieren (fuer Update-Check im Dashboard)
 if [ -d "$INSTALL_DIR/.git" ]; then
-    git fetch origin main 2>/dev/null && git reset --hard origin/main 2>/dev/null || true
+    git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
+    su -c "git config --global --add safe.directory $INSTALL_DIR" ems 2>/dev/null || true
+    git -C "$INSTALL_DIR" fetch origin main 2>&1 || echo -e "${YELLOW}  Git fetch fehlgeschlagen${NC}"
+    git -C "$INSTALL_DIR" reset --hard origin/main 2>&1 || echo -e "${YELLOW}  Git reset fehlgeschlagen${NC}"
+    echo -e "  Git HEAD: $(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo 'unbekannt')"
 fi
 
 # ── 2. Python Dependencies ──────────────────────────────────────────
