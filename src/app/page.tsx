@@ -100,6 +100,13 @@ export default function Dashboard() {
   }, [connected]);
 
   const handleModeChange = useCallback((loadpointName: string, mode: string) => {
+    // Optimistisches Update — Button reagiert sofort
+    setState(prev => ({
+      ...prev,
+      loadpoints: prev.loadpoints.map(lp =>
+        lp.name === loadpointName ? { ...lp, mode } : lp
+      ),
+    }));
     fetch("/api/command", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -107,9 +114,16 @@ export default function Dashboard() {
     });
   }, []);
 
-  const timeSince = state.updated_at
-    ? `${Math.round((Date.now() - new Date(state.updated_at + "Z").getTime()) / 1000)}s`
-    : "---";
+  const timeSince = (() => {
+    if (!state.updated_at) return "---";
+    const ts = state.updated_at.endsWith("Z") || state.updated_at.includes("+")
+      ? new Date(state.updated_at)
+      : new Date(state.updated_at + "Z");
+    const secs = Math.round((Date.now() - ts.getTime()) / 1000);
+    if (isNaN(secs) || secs < 0) return "jetzt";
+    if (secs < 60) return `${secs}s`;
+    return `${Math.round(secs / 60)}m`;
+  })();
 
   if (!configChecked) {
     return (
