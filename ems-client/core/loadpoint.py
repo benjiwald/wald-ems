@@ -205,15 +205,16 @@ class Loadpoint:
         # 6. Zielstrom berechnen basierend auf Modus
         target_a = self._calculate_target(available_w, force_charge)
 
-        # 7. Hysterese anwenden
-        target_a = self._apply_hysteresis(target_a, available_w)
+        # 7. Hysterese nur im PV-Modus (Sofort und Min+PV starten sofort)
+        if self.mode == "pv":
+            target_a = self._apply_hysteresis(target_a, available_w)
 
         # 8. Min/Max Grenzen
         if target_a < self.min_current:
             if self.mode == "pv":
-                target_a = 0
-            elif self.mode == "min_pv":
-                target_a = self.min_current
+                target_a = 0  # PV: lieber aus als unter Minimum
+            elif self.mode in ("min_pv", "now") or force_charge:
+                target_a = self.min_current  # Min+PV/Sofort: mindestens 6A
             else:
                 target_a = 0
         target_a = min(target_a, self.max_current)
