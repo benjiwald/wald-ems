@@ -158,8 +158,8 @@ class Loadpoint:
         self._status = self.charger.status()
 
         # 2. Aktuelle Ladeleistung messen
-        if self._status in ("A", "B"):
-            # Nicht verbunden oder verbunden aber nicht ladend → 0W
+        if self._status == "A":
+            # Nicht verbunden → 0W
             self._charging_power_w = 0
         elif self.meter:
             self._charging_power_w = max(0, self.meter.current_power())
