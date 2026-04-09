@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getState } from "@/lib/db";
 import { execSync, spawn } from "child_process";
 import path from "path";
