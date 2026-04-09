@@ -52,8 +52,9 @@ export default function LoadpointCard({
   vehicle, vehicle_soc, target_soc, min_soc, battery_kwh, onModeChange,
 }: LoadpointProps) {
   // IEC 61851 Status: A=getrennt, B=verbunden, C=laden, F=fehler
-  const isCharging = status === "C" || status === "charging";
-  const isConnected = status === "B" || status === "connected";
+  // NRG Kick meldet oft "B" auch waehrend geladen wird → Power als Indikator
+  const isCharging = status === "C" || status === "charging" || (status === "B" && power_w > 100);
+  const isConnected = (status === "B" || status === "connected") && power_w <= 100;
   const effectiveTargetSoc = target_soc || 100;
   const timeToTarget = (vehicle_soc != null && battery_kwh)
     ? calcTimeToTarget(vehicle_soc, effectiveTargetSoc, battery_kwh, power_w)
