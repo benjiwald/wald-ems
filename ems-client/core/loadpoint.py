@@ -157,14 +157,13 @@ class Loadpoint:
         # 1. Charger-Status lesen
         self._status = self.charger.status()
 
-        # 2. Aktuelle Ladeleistung messen
+        # 2. Aktuelle Ladeleistung messen (abs: NRG Kick meldet negativ)
         if self._status == "A":
-            # Nicht verbunden → 0W
             self._charging_power_w = 0
         elif self.meter:
-            self._charging_power_w = max(0, self.meter.current_power())
+            self._charging_power_w = abs(self.meter.current_power())
         elif isinstance(self.charger, Meter):
-            self._charging_power_w = max(0, self.charger.current_power())
+            self._charging_power_w = abs(self.charger.current_power())
         else:
             self._charging_power_w = 0
 
