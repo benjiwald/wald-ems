@@ -20,6 +20,9 @@ export async function GET() {
   const installDir = getInstallDir();
 
   try {
+    // safe.directory setzen (noetig wenn ems-User auf root-owned Repo zugreift)
+    execSync(`git config --global --add safe.directory ${installDir}`, { timeout: 5000 }).toString();
+
     // Git fetch um Remote-Status zu holen
     execSync("git fetch origin main --quiet", { cwd: installDir, timeout: 15000 });
 

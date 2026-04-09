@@ -31,8 +31,9 @@ fi
 
 cd "$INSTALL_DIR"
 
-# Git safe.directory (noetig wenn root auf Repo von ems-User zugreift)
+# Git safe.directory fuer root UND ems-User setzen
 git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
+su -c "git config --global --add safe.directory $INSTALL_DIR" ems 2>/dev/null || true
 
 OLD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
