@@ -1077,7 +1077,7 @@ function TabSystem({
                 <div className="flex items-center gap-2">
                   <Download className="w-4 h-4 text-primary" />
                   <span className="text-sm font-medium">
-                    Update verfuegbar — {updateInfo.behind} {updateInfo.behind === 1 ? "Commit" : "Commits"} hinter origin/main
+                    Update verfuegbar
                   </span>
                 </div>
                 <button
