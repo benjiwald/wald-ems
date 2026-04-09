@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import { getState } from "@/lib/db";
 import { execSync, spawn } from "child_process";
 import path from "path";
+import { readFileSync } from "fs";
+
+const PKG_VERSION = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf-8"));
+    return pkg.version || "unknown";
+  } catch { return "unknown"; }
+})();
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +43,7 @@ export async function GET() {
     const clientStatus = getState("client_status") as { version?: string } | null;
 
     return NextResponse.json({
+      version: `v${PKG_VERSION}`,
       current_commit: localHash.substring(0, 7),
       remote_commit: remoteHash.substring(0, 7),
       current_date: localDate,

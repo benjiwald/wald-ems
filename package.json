@@ -1,6 +1,6 @@
 {
   "name": "wald-ems",
-  "version": "0.1.0",
+  "version": "1.0.8",
   "private": true,
   "description": "Self-hosted Energy Management System for Raspberry Pi",
   "scripts": {
