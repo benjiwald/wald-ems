@@ -132,8 +132,10 @@ class Loadpoint:
         self._disable_timer: float | None = None
 
         # Write-on-change: letzter geschriebener Wert
+        # Start mit False: verhindert enable(False) beim ersten Zyklus
+        # (würde laufende Ladesession unterbrechen)
         self._last_written_current: float = -1
-        self._last_written_enabled: bool | None = None
+        self._last_written_enabled: bool = False
 
         # Session Tracking
         self._session: ChargingSession | None = None
