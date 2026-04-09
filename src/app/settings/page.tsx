@@ -1060,16 +1060,9 @@ function TabSystem({
           <div className="space-y-3">
             <div className="flex items-center gap-4 text-sm">
               <div>
-                <span className="text-muted-foreground">Aktuell: </span>
-                <span className="mono font-medium">{updateInfo.current_commit}</span>
+                <span className="text-muted-foreground">Version: </span>
+                <span className="mono font-medium">{updateInfo.version || `v${updateInfo.client_version}` || updateInfo.current_commit}</span>
               </div>
-              {updateInfo.client_version !== "unknown" && (
-                <div>
-                  <span className="text-muted-foreground">Client: </span>
-                  <span className="mono font-medium">v{updateInfo.client_version}</span>
-                </div>
-              )}
-              <div className="text-xs text-muted-foreground">{updateInfo.current_date}</div>
             </div>
 
             {updateInfo.update_available ? (
