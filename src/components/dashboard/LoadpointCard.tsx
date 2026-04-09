@@ -51,7 +51,9 @@ export default function LoadpointCard({
   name, mode, status, power_w, current_a, phases, energy_kwh,
   vehicle, vehicle_soc, target_soc, min_soc, battery_kwh, onModeChange,
 }: LoadpointProps) {
-  const isCharging = status === "charging";
+  // IEC 61851 Status: A=getrennt, B=verbunden, C=laden, F=fehler
+  const isCharging = status === "C" || status === "charging";
+  const isConnected = status === "B" || status === "connected";
   const effectiveTargetSoc = target_soc || 100;
   const timeToTarget = (vehicle_soc != null && battery_kwh)
     ? calcTimeToTarget(vehicle_soc, effectiveTargetSoc, battery_kwh, power_w)
@@ -63,7 +65,7 @@ export default function LoadpointCard({
         <div>
           <h3 className="font-semibold text-base">{name}</h3>
           <p className={`text-xs mt-1 ${isCharging ? "text-primary" : "text-muted-foreground"}`}>
-            {isCharging ? "Laedt..." : status === "connected" ? "Verbunden" : "Getrennt"}
+            {isCharging ? "Laedt..." : isConnected ? "Verbunden" : status === "F" ? "Fehler" : "Getrennt"}
           </p>
         </div>
         {isCharging && (
