@@ -165,7 +165,7 @@ export default function Dashboard() {
                 mode={lp.mode || "off"}
                 status={lp.status || "disconnected"}
                 power_w={lp.power_w || lp.charging_power_w || 0}
-                current_a={lp.current_a || lp.target_current_a || 0}
+                current_a={(lp.power_w || lp.charging_power_w || 0) > 100 ? (lp.current_a || lp.target_current_a || 0) : 0}
                 phases={lp.phases || 1}
                 energy_kwh={lp.session_energy_kwh || lp.energy_kwh || 0}
                 vehicle={lp.vehicle}

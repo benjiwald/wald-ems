@@ -156,6 +156,11 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
     # ── Meter Interface ───────────────────────────────────────────────────────
 
     def current_power(self) -> float:
+        # Phasenströme als Validator: wenn kein Strom fließt, ist Power ein Phantom-Wert
+        l1 = self._read_reg("current_l1") if "current_l1" in self.register_map else None
+        if l1 is not None and l1 < 0.5:
+            self._cache["charging_power"] = 0
+            return 0.0
         for key in ("charging_power", "power"):
             if key in self.register_map:
                 val = self._read_reg(key)
