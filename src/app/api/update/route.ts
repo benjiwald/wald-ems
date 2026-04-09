@@ -51,8 +51,16 @@ export async function GET() {
     // Aktuelle Version aus State-Tabelle
     const clientStatus = getState("client_status") as { version?: string } | null;
 
+    // Remote-Version aus package.json auf origin/main
+    let remoteVersion = "unknown";
+    try {
+      const remotePkg = execSync("git show origin/main:package.json", { cwd: installDir, timeout: 5000 }).toString();
+      remoteVersion = JSON.parse(remotePkg).version || "unknown";
+    } catch { /* ignore */ }
+
     return NextResponse.json({
       version: `v${PKG_VERSION}`,
+      remote_version: `v${remoteVersion}`,
       current_commit: localHash.substring(0, 7),
       remote_commit: remoteHash.substring(0, 7),
       current_date: localDate,

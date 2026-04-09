@@ -19,6 +19,7 @@ import type { WaldConfig } from "@/lib/config";
 
 interface UpdateInfo {
   version?: string;
+  remote_version?: string;
   current_commit: string;
   remote_commit: string;
   current_date: string;
@@ -1061,9 +1062,15 @@ function TabSystem({
           <div className="space-y-3">
             <div className="flex items-center gap-4 text-sm">
               <div>
-                <span className="text-muted-foreground">Version: </span>
-                <span className="mono font-medium">{updateInfo.version || `v${updateInfo.client_version}` || updateInfo.current_commit}</span>
+                <span className="text-muted-foreground">Installiert: </span>
+                <span className="mono font-medium">{updateInfo.version || `v${updateInfo.client_version}`}</span>
               </div>
+              {updateInfo.update_available && updateInfo.remote_version && (
+                <div>
+                  <span className="text-muted-foreground">Verfuegbar: </span>
+                  <span className="mono font-medium text-primary">{updateInfo.remote_version}</span>
+                </div>
+              )}
             </div>
 
             {updateInfo.update_available ? (
