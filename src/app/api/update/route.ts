@@ -5,10 +5,19 @@ import path from "path";
 import { readFileSync } from "fs";
 
 const PKG_VERSION = (() => {
-  try {
-    const pkg = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf-8"));
-    return pkg.version || "unknown";
-  } catch { return "unknown"; }
+  // package.json liegt in /opt/ems, Dashboard laeuft in /opt/ems/dashboard
+  const candidates = [
+    path.join(process.cwd(), "package.json"),
+    path.join(process.cwd(), "..", "package.json"),
+    "/opt/ems/package.json",
+  ];
+  for (const p of candidates) {
+    try {
+      const pkg = JSON.parse(readFileSync(p, "utf-8"));
+      if (pkg.version) return pkg.version;
+    } catch { /* weiter */ }
+  }
+  return "unknown";
 })();
 
 export const dynamic = "force-dynamic";
