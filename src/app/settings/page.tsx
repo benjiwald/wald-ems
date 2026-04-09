@@ -18,6 +18,7 @@ import type { WaldConfig } from "@/lib/config";
 // ---------------------------------------------------------------------------
 
 interface UpdateInfo {
+  version?: string;
   current_commit: string;
   remote_commit: string;
   current_date: string;
