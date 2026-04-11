@@ -1,4 +1,4 @@
-"""Loadpoint — Wallbox-Regelschleife (evcc-Feature-Parität).
+"""Loadpoint — Wallbox-Regelschleife (evcc-aligned).
 
 Modi:
 - OFF:    Laden gesperrt
@@ -6,12 +6,13 @@ Modi:
 - PV:     Nur mit PV-Überschuss laden (pausiert bei zu wenig)
 - MIN_PV: Mindestladung (6A) + PV-Überschuss obendrauf
 
-Features (wie evcc):
-- Hysterese (enable/disable Threshold + Delay)
-- Target SoC (stoppt bei Erreichen)
-- Min SoC (erzwingt Laden unter Minimum)
-- Phase Switching (1P↔3P basierend auf Leistung)
-- Session Tracking (Energie, Dauer, Kosten)
+Regelung orientiert sich an evcc:
+- Enable Delay: 60s (Überschuss muss 60s anstehen)
+- Disable Delay: 180s (3 Min Wolken-Toleranz)
+- Session Tracking: Status-basiert (A=getrennt beendet Session)
+- Charger Grace Period: 60s nach Enable/Disable
+- Phasen-Erkennung: > 1.0A Schwelle
+- Kein EWMA — Enable/Disable Delays reichen als Filter
 """
 
 import logging
@@ -22,12 +23,12 @@ from api.interfaces import PhaseCurrents
 
 log = logging.getLogger("ems.loadpoint")
 
-# Konstanten
+# Konstanten (evcc-Defaults)
 VOLTAGE = 230  # V (Nennspannung)
 MIN_CURRENT = 6.0  # A (Minimum nach IEC 61851)
 DEFAULT_MAX_CURRENT = 16.0  # A
-PHASE_SWITCH_THRESHOLD_1P = 1380  # W (6A × 230V × 1P) — unter dem: 1P reicht
-PHASE_SWITCH_THRESHOLD_3P = 4140  # W (6A × 230V × 3P) — über dem: 3P nötig
+CHARGER_SWITCH_DURATION = 60  # s — Grace Period nach Enable/Disable (wie evcc)
+PHASE_ACTIVE_THRESHOLD = 1.0  # A — Phase gilt als aktiv ab 1A (wie evcc)
 
 
 class ChargingSession:
@@ -78,7 +79,7 @@ class ChargingSession:
         from datetime import datetime, timezone
         return {
             "loadpoint_id": self.loadpoint_id,
-            "loadpoint_name": self.loadpoint_id,  # write_session erwartet diesen Key
+            "loadpoint_name": self.loadpoint_id,
             "started_at": datetime.fromtimestamp(self.started_at, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
             "finished_at": datetime.fromtimestamp(self.finished_at, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if self.finished_at else None,
             "duration_s": round(self.duration_s),
@@ -87,9 +88,9 @@ class ChargingSession:
             "max_power_w": round(self.max_power_w),
             "mode": self.mode,
             "phases": self.phases,
-            "solar_kwh": 0,  # TODO: Solar-Anteil berechnen
+            "solar_kwh": 0,
             "vehicle": None,
-            "cost_eur": 0,  # TODO: Kosten berechnen
+            "cost_eur": 0,
             "active": self.finished_at is None,
         }
 
@@ -111,20 +112,20 @@ class Loadpoint:
         self.target_soc = float(config.get("target_soc", 80))
         self.min_soc = float(config.get("min_soc", 20))
         self.battery_boost = bool(config.get("battery_boost", False))
-        # Hysterese (evcc-Defaults):
-        # Enable: 1380W (6A×230V×1P) für 60s bevor Laden startet
-        # Disable: 5 Min warten bevor Laden gestoppt wird (Wolken-Toleranz)
-        default_threshold = self.min_current * VOLTAGE * self.phases  # 1P=1380W, 3P=4140W
+
+        # Hysterese (evcc-Defaults)
+        default_threshold = self.min_current * VOLTAGE * self.phases
         self.enable_threshold_w = float(config.get("enable_threshold_w", default_threshold))
-        self.enable_delay_s = int(config.get("enable_delay_s", 60))
-        self.disable_threshold_w = float(config.get("disable_threshold_w", 0))
-        self.disable_delay_s = int(config.get("disable_delay_s", 300))
+        self.enable_delay_s = int(config.get("enable_delay_s", 60))      # evcc: 1 Min
+        self.disable_threshold_w = float(config.get("disable_threshold_w", default_threshold))
+        self.disable_delay_s = int(config.get("disable_delay_s", 180))   # evcc: 3 Min
 
         self.charger = charger
         self.meter = meter
 
         # Zustandsvariablen
         self._status = "A"
+        self._prev_status = "A"
         self._charging_power_w = 0.0
         self._target_current_a = 0.0
         self._enabled = False
@@ -133,17 +134,14 @@ class Loadpoint:
         self._enable_timer: float | None = None
         self._disable_timer: float | None = None
 
-        # Session-Ende Grace Period: 3 Zyklen (30s) ohne Leistung bevor Session endet
-        self._no_power_count: int = 0
-        NO_POWER_GRACE = 3  # Zyklen
+        # Charger Grace Period (evcc: 60s nach Enable/Disable)
+        self._charger_switch_time: float = 0
 
-        # Write-on-change: letzter geschriebener Wert
-        # Start mit None: erster Schreibvorgang wird immer ausgefuehrt,
-        # ABER _set_charging wird erst aufgerufen wenn should_enable=True
+        # Write-on-change + periodisches Nachschreiben
         self._last_written_current: float = -1
         self._last_written_enabled: bool | None = None
-        self._ever_enabled: bool = False  # True sobald einmal enabled
-        self._last_write_time: float = 0  # Periodisches Nachschreiben
+        self._ever_enabled: bool = False
+        self._last_write_time: float = 0
 
         # Session Tracking
         self._session: ChargingSession | None = None
@@ -153,7 +151,7 @@ class Loadpoint:
         self.cost_limit_ct: float = float(config.get("cost_limit_ct", 0))
 
         # Tariff Reference (wird von Site gesetzt)
-        self.tariff = None  # AWATTarTariff instance
+        self.tariff = None
 
         # Vehicle Reference (wird von Site gesetzt)
         self.vehicle_soc: float | None = None
@@ -168,8 +166,6 @@ class Loadpoint:
         self._status = self.charger.status()
 
         # 2. Aktuelle Ladeleistung messen
-        # Charger-eigenes Meter bevorzugen (z.B. NRG Kick hat eingebauten Zaehler),
-        # separates Meter nur wenn Charger kein Meter implementiert.
         if self._status == "A":
             self._charging_power_w = 0
         elif isinstance(self.charger, Meter):
@@ -179,7 +175,7 @@ class Loadpoint:
         else:
             self._charging_power_w = 0
 
-        # 3. Session aktualisieren
+        # 3. Session aktualisieren (Status-basiert wie evcc)
         self._update_session()
 
         # Kein Fahrzeug verbunden → nichts zu tun
@@ -190,10 +186,7 @@ class Loadpoint:
             self._disable_timer = None
             return 0
 
-        # 4. Target/Min SoC — immer aus Loadpoint-Config (eine Quelle der Wahrheit)
-        # Vehicle-Tabelle speichert nur den SoC-Wert, nicht das Ziel
-
-        # Target SoC prüfen — Laden stoppen wenn erreicht (SoC 0 = unbekannt → ignorieren)
+        # 4. Target SoC prüfen
         if self.vehicle_soc is not None and self.vehicle_soc > 0 and self.vehicle_soc >= self.target_soc:
             if self.mode in ("pv", "min_pv", "now"):
                 log.info("LP %s: Target SoC %.0f%% erreicht (aktuell %.0f%%) — Laden gestoppt",
@@ -202,7 +195,6 @@ class Loadpoint:
                 return 0
 
         # 5. Min SoC prüfen — erzwingt Laden wenn unter Minimum
-        # SoC 0 = unbekannt (API nicht verfügbar) → NICHT force-chargen
         force_charge = False
         if self.vehicle_soc is not None and self.vehicle_soc > 0 and self.vehicle_soc < self.min_soc:
             force_charge = True
@@ -212,7 +204,7 @@ class Loadpoint:
         # 6. Zielstrom berechnen basierend auf Modus
         target_a = self._calculate_target(available_w, force_charge)
 
-        # 7. Hysterese nur im PV-Modus (Sofort und Min+PV starten sofort)
+        # 7. Hysterese im PV-Modus
         if self.mode == "pv":
             target_a = self._apply_hysteresis(target_a, available_w)
 
@@ -221,27 +213,24 @@ class Loadpoint:
             if self.mode == "pv":
                 target_a = 0  # PV: lieber aus als unter Minimum
             elif self.mode in ("min_pv", "now") or force_charge:
-                target_a = self.min_current  # Min+PV/Sofort: mindestens 6A
+                target_a = self.min_current
             else:
                 target_a = 0
         target_a = min(target_a, self.max_current)
 
-        # 9. An Charger schreiben — aber NIE disable senden wenn noch nie enabled
-        # (verhindert Unterbrechen einer laufenden Ladesession beim Start)
+        # 9. An Charger schreiben
         should_enable = target_a >= self.min_current
         if should_enable:
             self._ever_enabled = True
             self._set_charging(True, target_a)
         elif self._ever_enabled:
-            # Nur disablen wenn vorher schon mal enabled wurde
             self._set_charging(False, target_a)
 
-        # Aktive Phasenerkennung: tatsächliche Phasen aus Charger-Strömen
+        # 10. Aktive Phasenerkennung
         active_phases = self.phases
         if should_enable and isinstance(self.charger, PhaseCurrents):
             active_phases = self._detect_active_phases()
 
-        # Berechnete Leistung (mit tatsächlichen Phasen für korrekte Bilanz)
         used_w = target_a * VOLTAGE * active_phases if should_enable else 0
         log.info(
             "LP %s: mode=%s status=%s target=%.1fA power=%.0fW available=%.0fW phases=%d/%d soc=%s",
@@ -259,7 +248,6 @@ class Loadpoint:
             return self.max_current
 
         if self.mode == "now":
-            # Smart Cost: wenn Tarif konfiguriert und Preis über Limit -> pausieren
             if self.tariff and self.cost_limit_ct > 0:
                 if not self.tariff.is_cheap and self.tariff.current_price_ct > self.cost_limit_ct:
                     log.info("LP %s: Smart Cost — Preis %.1f ct > Limit %.1f ct -> pausiert",
@@ -270,63 +258,53 @@ class Loadpoint:
         available_a = available_w / (VOLTAGE * self.phases)
 
         if self.mode == "pv":
-            # Stufenweise Anpassung: max ±1A pro Zyklus (wie evcc)
-            target = available_a
-            if self._target_current_a > 0:
-                diff = target - self._target_current_a
-                if abs(diff) > 1.0:
-                    target = self._target_current_a + (1.0 if diff > 0 else -1.0)
-            return target
+            return available_a
 
         if self.mode == "min_pv":
-            # Min+PV: Mindestens min_current, darüber stufenweise ±1A
-            target = max(self.min_current, available_a)
-            if self._target_current_a >= self.min_current:
-                diff = target - self._target_current_a
-                if abs(diff) > 1.0:
-                    target = self._target_current_a + (1.0 if diff > 0 else -1.0)
-            return target
+            return max(self.min_current, available_a)
 
         return 0
 
     def _apply_hysteresis(self, target_a: float, available_w: float) -> float:
-        """Hysterese: Verhindert zu häufiges Ein-/Ausschalten."""
+        """Hysterese wie evcc: Enable/Disable Delays als zeitlicher Filter."""
         now = time.time()
 
         if not self._enabled:
-            # Noch nicht aktiv → prüfe Enable-Threshold
-            if self.enable_threshold_w > 0:
-                if available_w >= self.enable_threshold_w:
-                    if self._enable_timer is None:
-                        self._enable_timer = now
-                    elif now - self._enable_timer >= self.enable_delay_s:
-                        self._enable_timer = None
-                        return target_a  # Enable!
-                    return 0  # Noch warten
-                else:
+            # Noch nicht aktiv → Enable-Threshold prüfen
+            if available_w >= self.enable_threshold_w:
+                if self._enable_timer is None:
+                    self._enable_timer = now
+                    log.debug("LP %s: Enable-Timer gestartet (%.0fW >= %.0fW)",
+                              self.name, available_w, self.enable_threshold_w)
+                elif now - self._enable_timer >= self.enable_delay_s:
+                    log.info("LP %s: PV Enable — %.0fW für %ds verfügbar",
+                             self.name, available_w, self.enable_delay_s)
                     self._enable_timer = None
-                    return 0  # Unter Threshold
+                    return target_a  # Enable!
+                return 0  # Noch warten
+            else:
+                self._enable_timer = None
+                return 0  # Unter Threshold
         else:
-            # Bereits aktiv → prüfe Disable-Threshold
-            if self.disable_threshold_w > 0 and target_a < self.min_current:
-                if available_w <= -self.disable_threshold_w:
-                    if self._disable_timer is None:
-                        self._disable_timer = now
-                    elif now - self._disable_timer >= self.disable_delay_s:
-                        self._disable_timer = None
-                        return 0  # Disable!
-                    return self.min_current  # Noch halten
-                else:
+            # Bereits aktiv → Disable prüfen wenn unter Minimum
+            if target_a < self.min_current:
+                if self._disable_timer is None:
+                    self._disable_timer = now
+                    log.debug("LP %s: Disable-Timer gestartet (%.1fA < %.1fA)",
+                              self.name, target_a, self.min_current)
+                elif now - self._disable_timer >= self.disable_delay_s:
+                    log.info("LP %s: PV Disable — unter Minimum für %ds",
+                             self.name, self.disable_delay_s)
                     self._disable_timer = None
+                    return 0  # Disable!
+                return self.min_current  # Noch halten mit Minimum
+            else:
+                self._disable_timer = None
 
         return target_a
 
     def _set_charging(self, enable: bool, target_a: float):
-        """Setzt Charger-Status und trackt Session. Schreibt nur bei Wertänderung.
-
-        Periodisches Nachschreiben alle 60s verhindert, dass der Charger
-        eigenmächtig den Setpoint/Phasen ändert (z.B. NRG Kick Reset).
-        """
+        """Setzt Charger-Status. Periodisches Nachschreiben alle 60s."""
         now = time.time()
         force_rewrite = (now - self._last_write_time) > 60
 
@@ -334,9 +312,9 @@ class Loadpoint:
             self.charger.enable(enable)
             self._last_written_enabled = enable
             self._enabled = enable
+            self._charger_switch_time = now
 
         if enable and target_a >= self.min_current:
-            # Schreiben bei Wertänderung ODER periodisch alle 60s
             if abs(target_a - self._last_written_current) >= 0.5 or force_rewrite:
                 self.charger.max_current(target_a)
                 self._last_written_current = target_a
@@ -346,10 +324,13 @@ class Loadpoint:
         self._enabled = enable
 
     def _detect_active_phases(self) -> int:
-        """Erkennt aktive Phasen aus den Charger-Phasenströmen."""
+        """Erkennt aktive Phasen (evcc: > 1.0A Schwelle)."""
+        # Grace Period nach Enable/Disable — Messwerte noch nicht stabil
+        if time.time() - self._charger_switch_time < CHARGER_SWITCH_DURATION:
+            return self.phases
         try:
             l1, l2, l3 = self.charger.currents()
-            active = sum(1 for i in (l1, l2, l3) if i > 0.5)
+            active = sum(1 for i in (l1, l2, l3) if i > PHASE_ACTIVE_THRESHOLD)
             if active > 0 and active != self.phases:
                 log.warning("LP %s: Phasen-Abweichung! Config=%dP Gemessen=%dP (L1=%.1fA L2=%.1fA L3=%.1fA)",
                             self.name, self.phases, active, l1, l2, l3)
@@ -358,34 +339,23 @@ class Loadpoint:
             return self.phases
 
     def _update_session(self):
-        """Session Tracking: Start/Stop/Update.
+        """Session Tracking — Status-basiert wie evcc.
 
-        Grace Period: Session wird erst nach 3 aufeinanderfolgenden Zyklen
-        ohne Leistung beendet (toleriert kurze Modbus-Aussetzer).
+        Session startet wenn Fahrzeug lädt (Status B/C mit Leistung).
+        Session endet NUR wenn Fahrzeug abgesteckt wird (Status A).
+        Kurze Leistungseinbrüche (Modbus-Glitches) beenden NICHT die Session.
         """
-        has_power = (self._status in ("B", "C")) and self._charging_power_w > 50
-
-        if has_power:
-            self._no_power_count = 0
-
+        if self._status in ("B", "C") and self._charging_power_w > 50:
             if self._session is None:
-                # Neue Session starten
                 self._session = ChargingSession(self.id, self.mode, self.phases)
                 if self.vehicle_soc is not None:
                     self._session.vehicle_soc_start = self.vehicle_soc
                 log.info("LP %s: Ladesession gestartet", self.name)
             else:
-                # Session aktualisieren
                 self._session.update(self._charging_power_w)
 
-        elif self._session is not None:
-            # Kein Strom — aber erst nach Grace Period beenden
-            self._no_power_count += 1
-            if self._no_power_count < 3:
-                log.debug("LP %s: Kein Strom (%d/3) — warte...", self.name, self._no_power_count)
-                return
-
-            # Grace Period abgelaufen → Session wirklich beenden
+        # Session beenden NUR bei Disconnect (Status A)
+        if self._status == "A" and self._session is not None:
             if self.vehicle_soc is not None:
                 self._session.vehicle_soc_end = self.vehicle_soc
             self._session.finish()
@@ -397,7 +367,6 @@ class Loadpoint:
             else:
                 log.debug("LP %s: Leere Session verworfen (%.4f kWh)", self.name, self._session.energy_kwh)
             self._session = None
-            self._no_power_count = 0
 
     def set_mode(self, mode: str):
         if mode not in ("off", "now", "pv", "min_pv"):
@@ -405,10 +374,8 @@ class Loadpoint:
             return
         log.info("LP %s: Modus → %s", self.name, mode)
         self.mode = mode
-        # Write-on-Change States zurücksetzen → nächster Zyklus schreibt definitiv
         self._last_written_enabled = None
         self._last_written_current = -1
-        # Bei Off sofort Wallbox pausieren (nicht auf nächsten Zyklus warten)
         if mode == "off":
             self.charger.enable(False)
             self._enabled = False
@@ -428,13 +395,11 @@ class Loadpoint:
         log.info("LP %s: Max Strom → %.0fA", self.name, self.max_current)
 
     def pop_completed_sessions(self) -> list[dict]:
-        """Gibt abgeschlossene Sessions zurück und leert die Liste."""
         sessions = self._completed_sessions.copy()
         self._completed_sessions.clear()
         return sessions
 
     def state(self) -> dict:
-        """Gibt aktuellen Zustand für site_state zurück."""
         result = {
             "id": self.id,
             "name": self.name,
@@ -453,7 +418,6 @@ class Loadpoint:
             "battery_kwh": getattr(self, '_vehicle_battery_kwh', None),
         }
 
-        # Aktive Session
         if self._session:
             result["session"] = self._session.to_dict()
 
