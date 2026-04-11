@@ -376,11 +376,20 @@ class Loadpoint:
         self.mode = mode
         self._last_written_enabled = None
         self._last_written_current = -1
-        if mode == "off":
+        # Timer zurücksetzen bei Moduswechsel
+        self._enable_timer = None
+        self._disable_timer = None
+        if mode in ("off", "pv"):
+            # OFF: sofort pausieren
+            # PV: sofort pausieren → Enable-Logik entscheidet ob gestartet wird
             self.charger.enable(False)
             self._enabled = False
             self._last_written_enabled = False
-            log.info("LP %s: Wallbox sofort pausiert", self.name)
+            if mode == "off":
+                log.info("LP %s: Wallbox sofort pausiert", self.name)
+            else:
+                log.info("LP %s: Wallbox pausiert — warte auf PV-Überschuss (%.0fW für %ds)",
+                         self.name, self.enable_threshold_w, self.enable_delay_s)
 
     def set_target_soc(self, soc: float):
         self.target_soc = max(0, min(100, soc))
