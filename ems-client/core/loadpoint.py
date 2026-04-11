@@ -18,6 +18,7 @@ import logging
 import time
 from api.charger import Charger
 from api.meter import Meter
+from api.interfaces import PhaseCurrents
 
 log = logging.getLogger("ems.loadpoint")
 
@@ -137,6 +138,7 @@ class Loadpoint:
         self._last_written_current: float = -1
         self._last_written_enabled: bool | None = None
         self._ever_enabled: bool = False  # True sobald einmal enabled
+        self._last_write_time: float = 0  # Periodisches Nachschreiben
 
         # Session Tracking
         self._session: ChargingSession | None = None
@@ -229,12 +231,17 @@ class Loadpoint:
             # Nur disablen wenn vorher schon mal enabled wurde
             self._set_charging(False, target_a)
 
-        # Berechnete Leistung
-        used_w = target_a * VOLTAGE * self.phases if should_enable else 0
+        # Aktive Phasenerkennung: tatsächliche Phasen aus Charger-Strömen
+        active_phases = self.phases
+        if should_enable and isinstance(self.charger, PhaseCurrents):
+            active_phases = self._detect_active_phases()
+
+        # Berechnete Leistung (mit tatsächlichen Phasen für korrekte Bilanz)
+        used_w = target_a * VOLTAGE * active_phases if should_enable else 0
         log.info(
-            "LP %s: mode=%s status=%s target=%.1fA power=%.0fW available=%.0fW soc=%s",
+            "LP %s: mode=%s status=%s target=%.1fA power=%.0fW available=%.0fW phases=%d/%d soc=%s",
             self.name, self.mode, self._status, target_a,
-            self._charging_power_w, available_w,
+            self._charging_power_w, available_w, active_phases, self.phases,
             f"{self.vehicle_soc:.0f}%" if self.vehicle_soc is not None else "—",
         )
         return used_w
@@ -310,20 +317,40 @@ class Loadpoint:
         return target_a
 
     def _set_charging(self, enable: bool, target_a: float):
-        """Setzt Charger-Status und trackt Session. Schreibt nur bei Wertänderung."""
-        if enable != self._last_written_enabled:
+        """Setzt Charger-Status und trackt Session. Schreibt nur bei Wertänderung.
+
+        Periodisches Nachschreiben alle 60s verhindert, dass der Charger
+        eigenmächtig den Setpoint/Phasen ändert (z.B. NRG Kick Reset).
+        """
+        now = time.time()
+        force_rewrite = (now - self._last_write_time) > 60
+
+        if enable != self._last_written_enabled or force_rewrite:
             self.charger.enable(enable)
             self._last_written_enabled = enable
             self._enabled = enable
 
         if enable and target_a >= self.min_current:
-            # Nur schreiben wenn sich der Strom um mindestens 0.5A geändert hat
-            if abs(target_a - self._last_written_current) >= 0.5:
+            # Schreiben bei Wertänderung ODER periodisch alle 60s
+            if abs(target_a - self._last_written_current) >= 0.5 or force_rewrite:
                 self.charger.max_current(target_a)
                 self._last_written_current = target_a
+                self._last_write_time = now
 
         self._target_current_a = target_a
         self._enabled = enable
+
+    def _detect_active_phases(self) -> int:
+        """Erkennt aktive Phasen aus den Charger-Phasenströmen."""
+        try:
+            l1, l2, l3 = self.charger.currents()
+            active = sum(1 for i in (l1, l2, l3) if i > 0.5)
+            if active > 0 and active != self.phases:
+                log.warning("LP %s: Phasen-Abweichung! Config=%dP Gemessen=%dP (L1=%.1fA L2=%.1fA L3=%.1fA)",
+                            self.name, self.phases, active, l1, l2, l3)
+            return active if active > 0 else self.phases
+        except Exception:
+            return self.phases
 
     def _update_session(self):
         """Session Tracking: Start/Stop/Update."""

@@ -1,41 +1,20 @@
-"""Vehicle Cloud API Bridge — Fahrzeug-SoC über Hersteller-Cloud-APIs.
+"""Vehicle API — Fahrzeug-SoC über Hersteller-Cloud-APIs.
 
 Holt den Batterie-Ladezustand (SoC) und die Reichweite von
-Elektrofahrzeugen über die Cloud-APIs der Hersteller.
+Elektrofahrzeugen direkt vom Pi über die Cloud-APIs der Hersteller.
 
 Unterstützte Hersteller:
-  - Tesla (Fleet API, OAuth2)
-  - Volkswagen / Audi / Skoda / SEAT / CUPRA (WeConnect)
-  - BMW / MINI (ConnectedDrive)
-  - Mercedes / Smart (Mercedes me)
-  - Porsche (My Porsche / E-Mobility API)
-  - Renault / Dacia (Kamereon API)
-  - Hyundai / Kia (Bluelink)
-  - Peugeot / Citroën / Opel / DS (Stellantis)
+  - Renault / Dacia (Kamereon API via renault-api)
 
-Architektur:
-  Der Vehicle-Treiber läuft NICHT auf dem Pi, sondern als
-  Supabase Edge Function, da Cloud-APIs OAuth2 + Redirect-URLs
-  benötigen, die auf dem Pi nicht praktikabel sind.
-
-  Pi → MQTT "vehicle_soc_request" → Edge Function → Cloud API → DB
-  Dashboard → DB → SoC anzeigen
-
-  Alternativ: Pi pollt SoC aus der DB (site_config.vehicles[].soc).
-
-Konfigurationsbeispiel (in site_config.vehicles[]):
-{
-    "id": "vehicle-1",
-    "name": "Tesla Model 3",
-    "manufacturer": "tesla",
-    "vin": "5YJ3E1EA1NF123456",
-    "soc": 72,
-    "range_km": 285,
-    "last_updated": "2026-03-25T14:30:00Z",
-    "min_soc": 20,
-    "target_soc": 80,
-    "loadpoint_id": "lp-uuid"
-}
+Konfigurationsbeispiel (in wald-ems.yaml):
+vehicles:
+  - name: "Renault Zoe"
+    manufacturer: renault
+    vin: "VF1..."
+    battery_kwh: 52
+    credentials:
+      email: "user@example.com"
+      password: "secret"
 """
 
 import logging
@@ -104,13 +83,7 @@ class Vehicle:
 
 
 class VehicleManager:
-    """Verwaltet alle Fahrzeuge eines Standorts.
-
-    Fahrzeug-SoC wird über die DB synchronisiert:
-    1. Edge Function pollt Cloud APIs alle 5 Min
-    2. Schreibt SoC in vehicles-Tabelle (oder site_config)
-    3. Pi liest SoC beim Config-Refresh (alle 5 Min)
-    """
+    """Verwaltet alle Fahrzeuge eines Standorts."""
 
     def __init__(self):
         self.vehicles: dict[str, Vehicle] = {}
@@ -145,25 +118,3 @@ class VehicleManager:
 
     def all_vehicles(self) -> list[dict]:
         return [v.to_dict() for v in self.vehicles.values()]
-
-
-# ── Edge Function Template für Vehicle Cloud API ─────────────────────────────
-#
-# Die tatsächliche Cloud-API-Kommunikation läuft als Supabase Edge Function,
-# nicht auf dem Pi. Hier das Konzept:
-#
-# Edge Function: vehicle-soc (alle 5 Min via pg_cron)
-#
-# 1. Liest alle vehicles aus der DB mit OAuth2-Tokens
-# 2. Pro Hersteller:
-#    - Tesla: Fleet API → GET /api/1/vehicles/{id}/vehicle_data
-#    - VW/Audi: WeConnect API → GET /vehicles/{vin}/status
-#    - BMW: ConnectedDrive → GET /vehicles/v1/{vin}/status
-#    - Mercedes: Mercedes me → GET /vehicles/{vin}/status
-#    - Renault: Kamereon → GET /accounts/{id}/vehicles/{vin}/status
-# 3. Extrahiert SoC + Range
-# 4. Schreibt in vehicles-Tabelle
-# 5. Pi liest beim nächsten Config-Refresh
-#
-# OAuth2-Tokens werden über das Dashboard eingegeben und in der DB gespeichert.
-# Token-Refresh passiert automatisch in der Edge Function.

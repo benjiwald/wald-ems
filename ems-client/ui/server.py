@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from mqtt_handler import VERSION
+from db_handler import VERSION
 
 log = logging.getLogger("ems.ui")
 
