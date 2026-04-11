@@ -114,7 +114,8 @@ class Loadpoint:
         # Hysterese (evcc-Defaults):
         # Enable: 1380W (6A×230V×1P) für 60s bevor Laden startet
         # Disable: 5 Min warten bevor Laden gestoppt wird (Wolken-Toleranz)
-        self.enable_threshold_w = float(config.get("enable_threshold_w", 1380))
+        default_threshold = self.min_current * VOLTAGE * self.phases  # 1P=1380W, 3P=4140W
+        self.enable_threshold_w = float(config.get("enable_threshold_w", default_threshold))
         self.enable_delay_s = int(config.get("enable_delay_s", 60))
         self.disable_threshold_w = float(config.get("disable_threshold_w", 0))
         self.disable_delay_s = int(config.get("disable_delay_s", 300))
@@ -131,6 +132,10 @@ class Loadpoint:
         # Hysterese Timer
         self._enable_timer: float | None = None
         self._disable_timer: float | None = None
+
+        # Session-Ende Grace Period: 3 Zyklen (30s) ohne Leistung bevor Session endet
+        self._no_power_count: int = 0
+        NO_POWER_GRACE = 3  # Zyklen
 
         # Write-on-change: letzter geschriebener Wert
         # Start mit None: erster Schreibvorgang wird immer ausgefuehrt,
@@ -353,27 +358,37 @@ class Loadpoint:
             return self.phases
 
     def _update_session(self):
-        """Session Tracking: Start/Stop/Update."""
-        # NRG Kick meldet manchmal Status B obwohl geladen wird → Power als Indikator
-        is_charging = (self._status in ("B", "C")) and self._charging_power_w > 50
+        """Session Tracking: Start/Stop/Update.
 
-        if is_charging and self._session is None:
-            # Neue Session starten
-            self._session = ChargingSession(self.id, self.mode, self.phases)
-            if self.vehicle_soc is not None:
-                self._session.vehicle_soc_start = self.vehicle_soc
-            log.info("LP %s: Ladesession gestartet", self.name)
+        Grace Period: Session wird erst nach 3 aufeinanderfolgenden Zyklen
+        ohne Leistung beendet (toleriert kurze Modbus-Aussetzer).
+        """
+        has_power = (self._status in ("B", "C")) and self._charging_power_w > 50
 
-        elif is_charging and self._session is not None:
-            # Session aktualisieren
-            self._session.update(self._charging_power_w)
+        if has_power:
+            self._no_power_count = 0
 
-        elif not is_charging and self._session is not None:
-            # Session beenden
+            if self._session is None:
+                # Neue Session starten
+                self._session = ChargingSession(self.id, self.mode, self.phases)
+                if self.vehicle_soc is not None:
+                    self._session.vehicle_soc_start = self.vehicle_soc
+                log.info("LP %s: Ladesession gestartet", self.name)
+            else:
+                # Session aktualisieren
+                self._session.update(self._charging_power_w)
+
+        elif self._session is not None:
+            # Kein Strom — aber erst nach Grace Period beenden
+            self._no_power_count += 1
+            if self._no_power_count < 3:
+                log.debug("LP %s: Kein Strom (%d/3) — warte...", self.name, self._no_power_count)
+                return
+
+            # Grace Period abgelaufen → Session wirklich beenden
             if self.vehicle_soc is not None:
                 self._session.vehicle_soc_end = self.vehicle_soc
             self._session.finish()
-            # Nur Sessions mit Energie speichern (keine Ghost-Sessions)
             if self._session.energy_kwh >= 0.01:
                 self._completed_sessions.append(self._session.to_dict())
                 log.info("LP %s: Ladesession beendet — %.2f kWh in %.0f Min",
@@ -382,6 +397,7 @@ class Loadpoint:
             else:
                 log.debug("LP %s: Leere Session verworfen (%.4f kWh)", self.name, self._session.energy_kwh)
             self._session = None
+            self._no_power_count = 0
 
     def set_mode(self, mode: str):
         if mode not in ("off", "now", "pv", "min_pv"):
