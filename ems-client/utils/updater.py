@@ -57,7 +57,7 @@ def update_client(publish_log_fn=None, current_version: str = ""):
         with tarfile.open(tmp_path, "r:gz") as tar:
             try:
                 for member in tar.getmembers():
-                    if member.name.endswith("mqtt_handler.py"):
+                    if member.name.endswith("db_handler.py"):
                         f = tar.extractfile(member)
                         if f:
                             content = f.read().decode("utf-8", errors="replace")
@@ -150,7 +150,7 @@ def check_for_update(current_version: str) -> str | None:
         new_version = ""
         with tarfile.open(tmp_path, "r:gz") as tar:
             for member in tar.getmembers():
-                if member.name.endswith("mqtt_handler.py"):
+                if member.name.endswith("db_handler.py"):
                     f = tar.extractfile(member)
                     if f:
                         content = f.read().decode("utf-8", errors="replace")
