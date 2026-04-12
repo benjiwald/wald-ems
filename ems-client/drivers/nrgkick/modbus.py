@@ -146,6 +146,12 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
         if "max_current_setpoint" in self.register_map:
             ok = self._write_reg("max_current_setpoint", current)
             if ok:
+                # Read-back: prüfen ob der NRG Kick den Wert übernommen hat
+                actual = self._read_reg("max_current_setpoint")
+                if abs(actual - current) > 0.5:
+                    log.warning("NRG Kick %s: Setpoint Abweichung! Soll=%.1fA Ist=%.1fA → retry",
+                                self.name, current, actual)
+                    self._write_reg("max_current_setpoint", current)
                 log.info("NRG Kick %s: Ladestrom → %.1fA", self.name, current)
                 self._cache["max_current_setpoint"] = current
             else:

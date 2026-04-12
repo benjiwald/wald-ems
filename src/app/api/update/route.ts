@@ -4,7 +4,7 @@ import { execSync, spawn } from "child_process";
 import path from "path";
 import { readFileSync } from "fs";
 
-const PKG_VERSION = (() => {
+const PKG_VERSION = () => {
   // package.json liegt in /opt/ems, Dashboard laeuft in /opt/ems/dashboard
   const candidates = [
     path.join(process.cwd(), "package.json"),
@@ -18,7 +18,7 @@ const PKG_VERSION = (() => {
     } catch { /* weiter */ }
   }
   return "unknown";
-})();
+};
 
 export const dynamic = "force-dynamic";
 
@@ -58,14 +58,16 @@ export async function GET() {
       remoteVersion = JSON.parse(remotePkg).version || "unknown";
     } catch { /* ignore */ }
 
+    const localVersion = PKG_VERSION();
+
     return NextResponse.json({
-      version: `v${PKG_VERSION}`,
+      version: `v${localVersion}`,
       remote_version: `v${remoteVersion}`,
       current_commit: localHash.substring(0, 7),
       remote_commit: remoteHash.substring(0, 7),
       current_date: localDate,
       behind: parseInt(behindCount),
-      update_available: localHash !== remoteHash,
+      update_available: remoteVersion !== "unknown" && remoteVersion !== localVersion,
       client_version: clientStatus?.version || "unknown",
     });
   } catch (e) {

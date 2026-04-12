@@ -1,4 +1,4 @@
-"""Config Manager — YAML-basiert für lokalen Betrieb (ersetzt Supabase RPC)."""
+"""Config Manager — YAML-basiert für lokalen Betrieb."""
 
 import logging
 import os
@@ -67,11 +67,7 @@ DEFAULT_REGISTER_MAPS = {
 
 
 class ConfigManager:
-    """Verwaltet Assets, Loadpoints und Site-Config aus YAML-Datei.
-
-    Ersetzt die Supabase-basierte Version komplett.
-    Liest wald-ems.yaml und konvertiert in das Format, das Drivers/Site erwarten.
-    """
+    """Verwaltet Assets, Loadpoints und Site-Config aus YAML-Datei."""
 
     def __init__(self, config_path: str):
         self.config_path = config_path
@@ -101,10 +97,6 @@ class ConfigManager:
         except Exception as e:
             log.debug("Config-Refresh fehlgeschlagen: %s", e)
         return False
-
-    def ping_supabase(self):
-        """Nicht nötig lokal — Stub für Kompatibilität."""
-        pass
 
     def update_loadpoint_mode(self, lp_name: str, mode: str):
         """Aktualisiert Mode im Loadpoint (nur im Speicher, nicht in YAML)."""

@@ -27,10 +27,7 @@ class Site:
         self.buffer_w: float = config.get("buffer_w") or 100
         self.priority_soc: float = config.get("priority_soc") or 0
 
-        # Glättung: EWMA (Exponentially Weighted Moving Average, wie evcc)
-        self._available_smoothed: float = 0
-        self._available_initialized: bool = False
-        self._ewma_factor: float = 0.3  # 0.3 = reagiert in ~3 Zyklen (30s)
+        # evcc nutzt keine EWMA-Glättung — Enable/Disable Delays reichen als Filter
         self.buffer_soc: float = config.get("buffer_soc") or 0
 
         # Tarife
@@ -155,18 +152,7 @@ class Site:
         # Grid-Limit als Obergrenze (schützt vor Überlast am Netzanschluss)
         grid_headroom_w = self.grid_limit_w - self.grid_power_w - self.buffer_w
 
-        raw_available_w = min(surplus_w, grid_headroom_w)
-
-        # EWMA-Glättung (wie evcc): reagiert schnell auf Trends, dämpft Spitzen
-        if not self._available_initialized:
-            self._available_smoothed = raw_available_w
-            self._available_initialized = True
-        else:
-            self._available_smoothed = (
-                self._ewma_factor * raw_available_w +
-                (1 - self._ewma_factor) * self._available_smoothed
-            )
-        self.available_w = self._available_smoothed
+        self.available_w = min(surplus_w, grid_headroom_w)
 
         # Battery Priority (wie evcc prioritySoc/bufferSoc):
         # Unter prioritySoc → Batterie hat Vorrang, weniger für Loadpoints

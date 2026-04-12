@@ -3,8 +3,7 @@
 Wald EMS Client — Lokales Energiemanagementsystem
 ==================================================
 Lokale Version des Wania EMS Clients.
-Kommuniziert via SQLite statt MQTT/Supabase.
-Konfiguration via wald-ems.yaml statt Cloud-DB.
+Kommuniziert via SQLite, Konfiguration via wald-ems.yaml.
 """
 
 import logging
