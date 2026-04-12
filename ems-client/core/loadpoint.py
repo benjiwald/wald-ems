@@ -304,26 +304,21 @@ class Loadpoint:
         return target_a
 
     def _set_charging(self, enable: bool, target_a: float):
-        """Setzt Charger-Status. Heartbeat nur fuer Strom-Setpoint.
+        """Setzt Charger-Status. Heartbeat alle 60s fuer enable + current.
 
-        Enable/Disable: NUR bei Statusaenderung — Pause-Register (195)
-        nicht wiederholt beschreiben, das startet NRG Kick Ladesession neu!
-
-        Strom-Setpoint: bei Aenderung >= 0.5A ODER als Heartbeat alle 60s.
         Verhindert NRG Kick Modbus-Watchdog Timeout (~5min).
         """
         now = time.time()
         heartbeat = (now - self._last_write_time) >= 60
 
-        # Enable/Disable: NUR bei Statusaenderung
-        if enable != self._last_written_enabled:
+        if enable != self._last_written_enabled or heartbeat:
             self.charger.enable(enable)
             self._last_written_enabled = enable
             self._enabled = enable
-            self._charger_switch_time = now
             self._last_write_time = now
+            if enable != self._enabled:
+                self._charger_switch_time = now
 
-        # Strom-Setpoint: bei Aenderung oder Heartbeat (Register 194 ist safe)
         if enable and target_a >= self.min_current:
             if abs(target_a - self._last_written_current) >= 0.5 or heartbeat:
                 self.charger.max_current(target_a)

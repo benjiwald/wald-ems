@@ -124,13 +124,9 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
         # Register 195: Pause State (0=run, 1=pause) — invertiert!
         if "charging_pause" in self.register_map:
             pause_val = 0.0 if on else 1.0  # on=True → pause=0 (run)
-            # Read-before-write
-            before = self._read_reg("charging_pause")
             ok = self._write_reg("charging_pause", pause_val)
-            # Read-after-write
-            after = self._read_reg("charging_pause")
-            log.info("NRG Kick %s enable(%s): pause_reg before=%.0f after=%.0f write=%s",
-                     self.name, on, before, after, "OK" if ok else "FAIL")
+            log.debug("NRG Kick %s enable(%s): pause=%d → %s",
+                      self.name, on, int(pause_val), "OK" if ok else "FAIL")
         elif "max_current_setpoint" in self.register_map:
             if not on:
                 ok = self._write_reg("max_current_setpoint", 0)
