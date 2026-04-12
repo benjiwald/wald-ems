@@ -313,36 +313,32 @@ class Loadpoint:
     def _set_charging(self, enable: bool, target_a: float):
         """Setzt Charger-Status und trackt Session.
 
-        Schreibt nur bei Wertänderung ODER als Heartbeat alle 60s.
+        Enable/Disable: nur bei Statusaenderung (nicht bei Heartbeat,
+        da Schreiben auf Pause-Register den NRG Kick zum Neustart zwingt).
+
+        Strom-Setpoint: bei Aenderung >= 0.5A ODER als Heartbeat alle 60s.
         Der Heartbeat verhindert, dass der NRG Kick Modbus-Watchdog
         das Laden stoppt (typisch 5min Timeout ohne Kommunikation).
         """
         now = time.time()
         heartbeat = (now - self._last_write_time) >= 60
 
-        # Charger-Recovery: Wenn wir enabled haben aber Charger nicht ladet
-        # (Status B statt C, keine Power), dann Force-Resend
-        charger_lost = (
-            enable and self._last_written_enabled
-            and self._status == "B" and self._charging_power_w < 50
-            and self._ever_enabled
-        )
-        if charger_lost:
-            log.info("LP %s: Charger scheint gestoppt (Status B, 0W) — sende erneut", self.name)
-
-        force_write = heartbeat or charger_lost
-
-        if enable != self._last_written_enabled or (enable and force_write):
+        # Enable/Disable: NUR bei Statusaenderung — Pause-Register (195)
+        # nicht wiederholt beschreiben, das startet Ladesession neu!
+        if enable != self._last_written_enabled:
             self.charger.enable(enable)
             self._last_written_enabled = enable
             self._enabled = enable
             self._last_write_time = now
 
+        # Strom-Setpoint: bei Aenderung oder Heartbeat (Register 194 ist safe)
         if enable and target_a >= self.min_current:
-            if abs(target_a - self._last_written_current) >= 0.5 or force_write:
+            if abs(target_a - self._last_written_current) >= 0.5 or heartbeat:
                 self.charger.max_current(target_a)
                 self._last_written_current = target_a
                 self._last_write_time = now
+                if heartbeat:
+                    log.debug("LP %s: Heartbeat — max_current(%.1fA)", self.name, target_a)
 
         self._target_current_a = target_a
         self._enabled = enable
