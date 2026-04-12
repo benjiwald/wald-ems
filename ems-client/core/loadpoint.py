@@ -137,6 +137,7 @@ class Loadpoint:
         self._last_written_current: float = -1
         self._last_written_enabled: bool | None = None
         self._ever_enabled: bool = False  # True sobald einmal enabled
+        self._last_write_time: float = 0  # Heartbeat: letzte Modbus-Schreibzeit
 
         # Session Tracking
         self._session: ChargingSession | None = None
@@ -310,17 +311,38 @@ class Loadpoint:
         return target_a
 
     def _set_charging(self, enable: bool, target_a: float):
-        """Setzt Charger-Status und trackt Session. Schreibt nur bei Wertänderung."""
-        if enable != self._last_written_enabled:
+        """Setzt Charger-Status und trackt Session.
+
+        Schreibt nur bei Wertänderung ODER als Heartbeat alle 60s.
+        Der Heartbeat verhindert, dass der NRG Kick Modbus-Watchdog
+        das Laden stoppt (typisch 5min Timeout ohne Kommunikation).
+        """
+        now = time.time()
+        heartbeat = (now - self._last_write_time) >= 60
+
+        # Charger-Recovery: Wenn wir enabled haben aber Charger nicht ladet
+        # (Status B statt C, keine Power), dann Force-Resend
+        charger_lost = (
+            enable and self._last_written_enabled
+            and self._status == "B" and self._charging_power_w < 50
+            and self._ever_enabled
+        )
+        if charger_lost:
+            log.info("LP %s: Charger scheint gestoppt (Status B, 0W) — sende erneut", self.name)
+
+        force_write = heartbeat or charger_lost
+
+        if enable != self._last_written_enabled or (enable and force_write):
             self.charger.enable(enable)
             self._last_written_enabled = enable
             self._enabled = enable
+            self._last_write_time = now
 
         if enable and target_a >= self.min_current:
-            # Nur schreiben wenn sich der Strom um mindestens 0.5A geändert hat
-            if abs(target_a - self._last_written_current) >= 0.5:
+            if abs(target_a - self._last_written_current) >= 0.5 or force_write:
                 self.charger.max_current(target_a)
                 self._last_written_current = target_a
+                self._last_write_time = now
 
         self._target_current_a = target_a
         self._enabled = enable
