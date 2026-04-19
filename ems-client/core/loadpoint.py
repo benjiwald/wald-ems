@@ -302,29 +302,21 @@ class Loadpoint:
         return target_a
 
     def _set_charging(self, enable: bool, target_a: float):
-        """Setzt Charger-Status.
+        """Setzt Charger-Status — evcc-Stil: nur bei Aenderung schreiben.
 
-        Enable/Disable NUR bei Statusaenderung — jeder Schreibvorgang auf
-        Pause-Register (195) startet NRG Kick Ladesession neu -> Oszillation.
-
-        Strom-Setpoint (Register 194) ist safe: bei Aenderung oder als
-        Heartbeat alle 60s (verhindert Modbus-Watchdog Timeout).
+        Kein Heartbeat, kein Watchdog-Workaround: NRG Kick Gen2 braucht
+        laut evcc keine periodischen Schreibzugriffe.
         """
-        now = time.time()
-        heartbeat = (now - self._last_write_time) >= 60
-
         if enable != self._last_written_enabled:
             self.charger.enable(enable)
             self._last_written_enabled = enable
             self._enabled = enable
-            self._charger_switch_time = now
-            self._last_write_time = now
+            self._charger_switch_time = time.time()
 
         if enable and target_a >= self.min_current:
-            if abs(target_a - self._last_written_current) >= 0.5 or heartbeat:
+            if abs(target_a - self._last_written_current) >= 0.1:
                 self.charger.max_current(target_a)
                 self._last_written_current = target_a
-                self._last_write_time = now
 
         self._target_current_a = target_a
         self._enabled = enable

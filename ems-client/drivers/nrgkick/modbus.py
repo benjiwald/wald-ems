@@ -38,16 +38,14 @@ from drivers.modbus.connection import get_connection, ModbusConnection
 log = logging.getLogger("ems.drivers.nrgkick")
 
 # Status-Mapping (Register 251 — Charging Status)
-# Basierend auf IEC 61851 States
+# NRG Kick Gen2 Status-Codes (verifiziert gegen evcc):
 STATUS_MAP = {
-    0: "A",   # A1 — nicht verbunden, keine Spannung
-    1: "A",   # A2 — nicht verbunden, Spannung vorhanden
-    2: "B",   # B1 — verbunden, nicht laden, keine Spannung
-    3: "B",   # B2 — verbunden, nicht laden, Spannung vorhanden
-    4: "C",   # C1 — laden aktiv
-    5: "C",   # C2 — laden aktiv, Belüftung angefordert
-    6: "F",   # Fehler
-    7: "F",   # Unbekannt
+    0: "A",   # UNKNOWN → Standby
+    1: "A",   # STANDBY — nicht verbunden
+    2: "B",   # CONNECTED — verbunden, nicht laden
+    3: "C",   # CHARGING — aktiv am laden!
+    6: "F",   # ERROR
+    7: "B",   # WAKEUP → wie Connected behandeln
 }
 
 
