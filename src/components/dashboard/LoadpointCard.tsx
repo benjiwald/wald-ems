@@ -1,6 +1,6 @@
 "use client";
 
-import { Plug, Car, Zap, ZapOff, Clock } from "lucide-react";
+import { Plug, Car, Zap, ZapOff, Clock, Battery } from "lucide-react";
 
 interface LoadpointProps {
   name: string;
@@ -15,7 +15,9 @@ interface LoadpointProps {
   target_soc?: number;
   min_soc?: number;
   battery_kwh?: number;
+  battery_boost?: boolean;
   onModeChange: (mode: string) => void;
+  onBatteryBoostChange?: (enable: boolean) => void;
 }
 
 const MODES = [
@@ -49,12 +51,12 @@ function calcTimeToTarget(
 
 export default function LoadpointCard({
   name, mode, status, power_w, current_a, phases, energy_kwh,
-  vehicle, vehicle_soc, target_soc, min_soc, battery_kwh, onModeChange,
+  vehicle, vehicle_soc, target_soc, min_soc, battery_kwh, battery_boost,
+  onModeChange, onBatteryBoostChange,
 }: LoadpointProps) {
   // IEC 61851 Status: A=getrennt, B=verbunden, C=laden, F=fehler
-  // NRG Kick meldet oft "B" auch waehrend geladen wird → Power als Indikator
-  const isCharging = status === "C" || status === "charging" || (status === "B" && power_w > 100);
-  const isConnected = (status === "B" || status === "connected") && power_w <= 100;
+  const isCharging = status === "C" || status === "charging";
+  const isConnected = status === "B" || status === "connected";
   const effectiveTargetSoc = target_soc || 100;
   const timeToTarget = (vehicle_soc != null && battery_kwh)
     ? calcTimeToTarget(vehicle_soc, effectiveTargetSoc, battery_kwh, power_w)
@@ -139,6 +141,22 @@ export default function LoadpointCard({
           </button>
         ))}
       </div>
+
+      {/* Battery Boost Toggle */}
+      {onBatteryBoostChange && (
+        <button
+          onClick={() => onBatteryBoostChange(!battery_boost)}
+          title="Hausbatterie fuer schnelleres Laden entladen"
+          className={`mt-2 w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-medium transition-all border ${
+            battery_boost
+              ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
+              : "bg-muted/30 text-muted-foreground border-transparent hover:bg-muted/50"
+          }`}
+        >
+          <Battery className="w-3.5 h-3.5" />
+          Battery Boost {battery_boost ? "AN" : "AUS"}
+        </button>
+      )}
     </div>
   );
 }

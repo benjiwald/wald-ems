@@ -9,7 +9,7 @@ from typing import Callable
 
 log = logging.getLogger("ems.db")
 
-VERSION = "1.0.19"
+VERSION = "1.0.20"
 
 
 class DBHandler:

@@ -30,6 +30,7 @@ interface SiteState {
     target_soc?: number;
     min_soc?: number;
     battery_kwh?: number;
+    battery_boost?: boolean;
   }>;
   updated_at?: string;
 }
@@ -114,6 +115,21 @@ export default function Dashboard() {
     });
   }, []);
 
+  const handleBatteryBoostChange = useCallback((loadpointName: string, enable: boolean) => {
+    // Optimistic update
+    setState(prev => ({
+      ...prev,
+      loadpoints: prev.loadpoints.map(lp =>
+        lp.name === loadpointName ? { ...lp, battery_boost: enable } : lp
+      ),
+    }));
+    fetch("/api/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set_battery_boost", loadpoint: loadpointName, enable }),
+    });
+  }, []);
+
   const timeSince = (() => {
     if (!state.updated_at) return "---";
     const ts = state.updated_at.endsWith("Z") || state.updated_at.includes("+")
@@ -173,7 +189,9 @@ export default function Dashboard() {
                 target_soc={lp.target_soc}
                 min_soc={lp.min_soc}
                 battery_kwh={lp.battery_kwh}
+                battery_boost={lp.battery_boost}
                 onModeChange={(mode) => handleModeChange(lp.name, mode)}
+                onBatteryBoostChange={(enable) => handleBatteryBoostChange(lp.name, enable)}
               />
             ))}
           </div>

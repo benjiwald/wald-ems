@@ -170,15 +170,17 @@ class Site:
         # 4. Loadpoints aktualisieren (nach Priorität)
         remaining_w = self.available_w
         for lp in sorted(self.loadpoints, key=lambda lp: lp.priority):
-            # Battery Boost: Batterie-Entladeleistung zum verfügbaren Strom hinzurechnen
+            # Battery Boost (wie evcc): Hausbatterie darf entladen werden
+            # um das Auto schneller zu laden. Priority-SoC wird ignoriert.
+            # Konsequenz: available_w wird erhoeht um die komplette Battery-Kapazitaet
+            # -> Loadpoint kann bis zu max_current ziehen, Batterie deckt Defizit.
             lp_boost_w = 0
-            if getattr(lp, "battery_boost", False) and self.battery_power_w < -50:
-                # Batterie entlädt → diese Leistung steht dem LP zusätzlich zur Verfügung
-                # Aber nur wenn SoC über priority_soc (Batterie nicht zu leer)
-                if self.priority_soc <= 0 or self.battery_soc > self.priority_soc:
-                    lp_boost_w = abs(self.battery_power_w)
-                    log.debug("Battery Boost LP %s: +%.0fW (SoC %.0f%%)",
-                              lp.name, lp_boost_w, self.battery_soc)
+            if getattr(lp, "battery_boost", False):
+                # Volle Boost-Leistung: erlaubt LP bis max_current
+                # Hausbatterie entlaedt automatisch wenn PV nicht reicht
+                lp_boost_w = lp.max_current * 230 * lp.phases
+                log.debug("Battery Boost LP %s: aktiv (SoC %.0f%%, bat=%.0fW)",
+                          lp.name, self.battery_soc, self.battery_power_w)
 
             # Circuit-Limit prüfen (falls konfiguriert)
             circuit_id = getattr(lp, "circuit_id", None)

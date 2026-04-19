@@ -194,6 +194,15 @@ def handle_command(cmd: dict):
                 db.publish_log("info", f"Ladepunkt {lp.name}: Modus → {mode}")
                 break
 
+    elif action == "set_battery_boost":
+        lp_name = cmd.get("loadpoint", "")
+        enable = bool(cmd.get("enable", False))
+        for lp in (site.loadpoints if site else []):
+            if lp.name == lp_name or lp.id == lp_name:
+                lp.battery_boost = enable
+                db.publish_log("info", f"Ladepunkt {lp.name}: Battery Boost {'AN' if enable else 'AUS'}")
+                break
+
     elif action == "restart_client":
         db.publish_log("info", "Neustart auf Befehl")
         time.sleep(1)
