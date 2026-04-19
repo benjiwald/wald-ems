@@ -9,7 +9,7 @@ from typing import Callable
 
 log = logging.getLogger("ems.db")
 
-VERSION = "1.0.31"
+VERSION = "1.0.32"
 
 
 class DBHandler:
@@ -149,21 +149,34 @@ class DBHandler:
         """Schreibt abgeschlossene Ladesession in die DB."""
         conn = self._get_conn()
         try:
+            # Migration: grid_kwh und vehicle_soc_* spalten hinzufuegen falls fehlen
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(charging_sessions)")}
+            if "grid_kwh" not in cols:
+                conn.execute("ALTER TABLE charging_sessions ADD COLUMN grid_kwh REAL DEFAULT 0")
+            if "vehicle_soc_start" not in cols:
+                conn.execute("ALTER TABLE charging_sessions ADD COLUMN vehicle_soc_start REAL")
+            if "vehicle_soc_end" not in cols:
+                conn.execute("ALTER TABLE charging_sessions ADD COLUMN vehicle_soc_end REAL")
+
             conn.execute(
-                "INSERT INTO charging_sessions (loadpoint, started_at, finished_at, energy_kwh, solar_kwh, "
-                "max_power_w, avg_power_w, mode, phases, vehicle, cost_eur) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO charging_sessions (loadpoint, started_at, finished_at, energy_kwh, "
+                "solar_kwh, grid_kwh, max_power_w, avg_power_w, mode, phases, vehicle, "
+                "vehicle_soc_start, vehicle_soc_end, cost_eur) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     session.get("loadpoint_name", ""),
                     session.get("started_at", ""),
                     session.get("finished_at", ""),
                     session.get("energy_kwh", 0),
                     session.get("solar_kwh", 0),
+                    session.get("grid_kwh", 0),
                     session.get("max_power_w", 0),
                     session.get("avg_power_w", 0),
                     session.get("mode", ""),
                     session.get("phases", 1),
                     session.get("vehicle", ""),
+                    session.get("vehicle_soc_start"),
+                    session.get("vehicle_soc_end"),
                     session.get("cost_eur", 0),
                 ),
             )

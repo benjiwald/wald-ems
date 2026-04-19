@@ -141,6 +141,7 @@ export interface SessionRow {
   finished_at: string | null;
   energy_kwh: number;
   solar_kwh: number;
+  grid_kwh?: number;
   max_power_w: number;
   avg_power_w: number;
   mode: string | null;
@@ -151,9 +152,19 @@ export interface SessionRow {
   cost_eur: number;
 }
 
-export function getSessions(limit = 50): SessionRow[] {
+function ensureGridKwhColumn() {
   const db = getDb();
-  // Ghost-Sessions mit 0 kWh entfernen
+  try {
+    const cols = (db.prepare("PRAGMA table_info(charging_sessions)").all() as Array<{name: string}>).map(r => r.name);
+    if (!cols.includes("grid_kwh")) {
+      db.exec("ALTER TABLE charging_sessions ADD COLUMN grid_kwh REAL DEFAULT 0");
+    }
+  } catch { /* ignore */ }
+}
+
+export function getSessions(limit = 50): SessionRow[] {
+  ensureGridKwhColumn();
+  const db = getDb();
   db.prepare("DELETE FROM charging_sessions WHERE energy_kwh < 0.01").run();
   return db.prepare(
     "SELECT * FROM charging_sessions ORDER BY started_at DESC LIMIT ?"

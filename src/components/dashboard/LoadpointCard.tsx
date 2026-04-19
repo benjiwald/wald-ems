@@ -1,6 +1,7 @@
 "use client";
 
-import { Plug, Car, Zap, ZapOff, Clock, Battery } from "lucide-react";
+import { Plug, Car, Zap, ZapOff, Clock, Battery, Sun, Plug2 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 interface LoadpointProps {
   name: string;
@@ -21,6 +22,9 @@ interface LoadpointProps {
   min_soc?: number;
   battery_kwh?: number;
   battery_boost?: boolean;
+  session_started_ts?: number;
+  session_solar_kwh?: number;
+  session_grid_kwh?: number;
   onModeChange: (mode: string) => void;
   onBatteryBoostChange?: (enable: boolean) => void;
   onTargetSocChange?: (value: number) => void;
@@ -46,6 +50,14 @@ function formatDuration(minutes: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+function formatElapsed(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 function calcTimeToTarget(
   currentSoc: number, targetSoc: number, batteryKwh: number, powerW: number
 ): number | null {
@@ -59,8 +71,19 @@ export default function LoadpointCard({
   name, mode, status, power_w, current_a, phases, active_phases, currents, voltages,
   apparent_va, power_factor, energy_kwh,
   vehicle, vehicle_soc, target_soc, min_soc, battery_kwh, battery_boost,
+  session_started_ts, session_solar_kwh, session_grid_kwh,
   onModeChange, onBatteryBoostChange, onTargetSocChange,
 }: LoadpointProps) {
+  // Live-Timer (tickt jede Sekunde während Session läuft)
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!session_started_ts) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [session_started_ts]);
+  const sessionElapsedS = session_started_ts
+    ? Math.max(0, Math.floor(now / 1000 - session_started_ts))
+    : null;
   // IEC 61851 Status: A=getrennt, B=verbunden, C=laden, F=fehler
   const isCharging = status === "C" || status === "charging";
   const isConnected = status === "B" || status === "connected";
@@ -138,11 +161,33 @@ export default function LoadpointCard({
               )}
             </div>
           )}
-          {/* Time to target */}
-          {isCharging && timeToTarget != null && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Clock className="w-3 h-3" />
-              <span>~{formatDuration(timeToTarget)} bis {effectiveTargetSoc}%</span>
+          {/* Time to target + Live-Ladezeit + Solar/Netz */}
+          {isCharging && (
+            <div className="space-y-1">
+              {sessionElapsedS != null && (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Clock className="w-3 h-3" />
+                  <span>Ladezeit: <span className="mono text-foreground">{formatElapsed(sessionElapsedS)}</span></span>
+                </div>
+              )}
+              {timeToTarget != null && (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Clock className="w-3 h-3" />
+                  <span>~{formatDuration(timeToTarget)} bis {effectiveTargetSoc}%</span>
+                </div>
+              )}
+              {(session_solar_kwh != null || session_grid_kwh != null) && (
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <Sun className="w-3 h-3 text-amber-500" />
+                    <span className="mono text-foreground">{(session_solar_kwh ?? 0).toFixed(1)} kWh</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Plug2 className="w-3 h-3 text-red-400" />
+                    <span className="mono text-foreground">{(session_grid_kwh ?? 0).toFixed(1)} kWh</span>
+                  </span>
+                </div>
+              )}
             </div>
           )}
           {/* Target SoC Slider */}

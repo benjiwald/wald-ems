@@ -32,28 +32,40 @@ PHASE_ACTIVE_THRESHOLD = 1.0  # A — Phase gilt als aktiv ab 1A (wie evcc)
 
 
 class ChargingSession:
-    """Tracking einer einzelnen Ladesitzung."""
+    """Tracking einer einzelnen Ladesitzung inkl. Solar/Grid-Aufteilung."""
 
     def __init__(self, loadpoint_id: str, mode: str, phases: int):
         self.loadpoint_id = loadpoint_id
         self.started_at = time.time()
         self.finished_at: float | None = None
         self.energy_wh: float = 0
+        self.solar_wh: float = 0   # aus PV (+ Hausbatterie)
+        self.grid_wh: float = 0    # aus Netz
         self.max_power_w: float = 0
         self.mode = mode
         self.phases = phases
         self.vehicle_soc_start: float | None = None
         self.vehicle_soc_end: float | None = None
         self._last_power_w: float = 0
+        self._last_solar_share: float = 1.0  # Default: 100% Solar
         self._last_update: float = time.time()
 
-    def update(self, power_w: float):
-        """Aktualisiert Energie basierend auf aktueller Leistung."""
+    def update(self, power_w: float, solar_share: float = 1.0):
+        """Aktualisiert Energie basierend auf aktueller Leistung.
+
+        solar_share: Anteil aus PV/Batterie (0.0 = alles Netz, 1.0 = alles Solar)
+        """
         now = time.time()
-        dt_h = (now - self._last_update) / 3600  # Stunden
-        self.energy_wh += self._last_power_w * dt_h
+        dt_h = (now - self._last_update) / 3600
+        energy_increment = self._last_power_w * dt_h
+        self.energy_wh += energy_increment
+        # Aufteilung Solar/Netz nach letztem solar_share (repraesentativ fuer Intervall)
+        share = max(0.0, min(1.0, self._last_solar_share))
+        self.solar_wh += energy_increment * share
+        self.grid_wh += energy_increment * (1.0 - share)
         self.max_power_w = max(self.max_power_w, power_w)
         self._last_power_w = power_w
+        self._last_solar_share = solar_share
         self._last_update = now
 
     def finish(self):
@@ -81,15 +93,18 @@ class ChargingSession:
             "loadpoint_id": self.loadpoint_id,
             "loadpoint_name": self.loadpoint_id,
             "started_at": datetime.fromtimestamp(self.started_at, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            "started_at_ts": self.started_at,
             "finished_at": datetime.fromtimestamp(self.finished_at, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if self.finished_at else None,
             "duration_s": round(self.duration_s),
             "energy_kwh": round(self.energy_kwh, 2),
+            "solar_kwh": round(self.solar_wh / 1000, 2),
+            "grid_kwh": round(self.grid_wh / 1000, 2),
             "avg_power_w": round(self.avg_power_w),
             "max_power_w": round(self.max_power_w),
             "mode": self.mode,
             "phases": self.phases,
-            "solar_kwh": 0,
-            "vehicle": None,
+            "vehicle_soc_start": self.vehicle_soc_start,
+            "vehicle_soc_end": self.vehicle_soc_end,
             "cost_eur": 0,
             "active": self.finished_at is None,
         }
@@ -129,6 +144,7 @@ class Loadpoint:
         self._charging_power_w = 0.0
         self._target_current_a = 0.0
         self._enabled = False
+        self._last_solar_share: float = 1.0  # Anteil aus PV/Batterie
 
         # Hysterese Timer
         self._enable_timer: float | None = None
@@ -156,8 +172,12 @@ class Loadpoint:
         # Vehicle Reference (wird von Site gesetzt)
         self.vehicle_soc: float | None = None
 
-    def update(self, available_w: float) -> float:
+    def update(self, available_w: float, grid_import_w: float = 0) -> float:
         """Regelzyklus: Liest Status, berechnet Strom, schreibt an Charger.
+
+        Args:
+            available_w: Verfügbare Leistung (PV + Batterie - Haus - Puffer)
+            grid_import_w: Netzbezug (positiv=Import, negativ=Export)
 
         Returns:
             Tatsächlich genutzter Strom in Watt
@@ -174,6 +194,15 @@ class Loadpoint:
             self._charging_power_w = abs(self.meter.current_power())
         else:
             self._charging_power_w = 0
+
+        # Solar-Anteil berechnen: wenn Netz importiert, dann LP teils aus Netz
+        # grid_import_w > 0 = Netzbezug
+        # LP Solar-Share = max(0, 1 - grid_import / lp_power)
+        if self._charging_power_w > 50 and grid_import_w > 0:
+            grid_share = min(1.0, grid_import_w / self._charging_power_w)
+            self._last_solar_share = max(0.0, 1.0 - grid_share)
+        else:
+            self._last_solar_share = 1.0  # PV-Überschuss / Netzeinspeisung → 100% Solar
 
         # 3. Session aktualisieren (Status-basiert wie evcc)
         self._update_session()
@@ -366,7 +395,7 @@ class Loadpoint:
                     self._session.vehicle_soc_start = self.vehicle_soc
                 log.info("LP %s: Ladesession gestartet", self.name)
             else:
-                self._session.update(self._charging_power_w)
+                self._session.update(self._charging_power_w, self._last_solar_share)
 
         # Session beenden NUR bei Disconnect (Status A)
         if self._status == "A" and self._session is not None:

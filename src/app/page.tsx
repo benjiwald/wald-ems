@@ -36,6 +36,14 @@ interface SiteState {
     voltages?: number[] | null;
     apparent_va?: number | null;
     power_factor?: number | null;
+    session?: {
+      active?: boolean;
+      started_at_ts?: number;
+      duration_s?: number;
+      energy_kwh?: number;
+      solar_kwh?: number;
+      grid_kwh?: number;
+    };
   }>;
   updated_at?: string;
 }
@@ -208,7 +216,10 @@ export default function Dashboard() {
                 voltages={lp.voltages}
                 apparent_va={lp.apparent_va}
                 power_factor={lp.power_factor}
-                energy_kwh={lp.session_energy_kwh || lp.energy_kwh || 0}
+                energy_kwh={lp.session?.energy_kwh ?? lp.session_energy_kwh ?? lp.energy_kwh ?? 0}
+                session_started_ts={lp.session?.started_at_ts}
+                session_solar_kwh={lp.session?.solar_kwh}
+                session_grid_kwh={lp.session?.grid_kwh}
                 vehicle={lp.vehicle}
                 vehicle_soc={lp.vehicle_soc ?? undefined}
                 target_soc={lp.target_soc}

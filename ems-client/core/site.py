@@ -189,7 +189,7 @@ class Site:
 
             # Loadpoint bekommt das Minimum aus verfügbar + Boost + Circuit-Limit
             lp_available_w = min(remaining_w + lp_boost_w, circuit_max_w)
-            used_w = lp.update(lp_available_w)
+            used_w = lp.update(lp_available_w, self.grid_power_w)
             remaining_w -= used_w
 
             # Circuit-Last aktualisieren
