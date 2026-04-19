@@ -142,25 +142,37 @@ def build_site(cfg: ConfigManager) -> Site:
 
     # Fahrzeuge laden
     _vehicle_drivers.clear()
+    if db:
+        db.publish_log("info", f"build_site: {len(cfg.vehicles)} Vehicle-Eintraege in Config")
     for vc in cfg.vehicles:
         manufacturer = vc.get("manufacturer", "").lower()
         lp_id = vc.get("loadpoint_id")
+        if db:
+            db.publish_log("info", f"Vehicle: name={vc.get('name')} manufacturer={manufacturer} lp_id={lp_id}")
         if manufacturer == "renault":
             try:
                 from drivers.vehicle.renault import RenaultVehicle
                 rv = RenaultVehicle(vc)
                 _vehicle_drivers[vc["id"]] = rv
+                if db:
+                    db.publish_log("info", f"Renault-Driver erstellt fuer {rv.name}")
                 if lp_id:
                     for lp in s.loadpoints:
                         if lp.id == lp_id or lp.name == lp_id:
                             lp._vehicle_driver = rv
                             lp._vehicle_battery_kwh = vc.get("battery_kwh", 0)
                             log.info("Fahrzeug %s → LP %s (%.0f kWh)", rv.name, lp.name, lp._vehicle_battery_kwh)
+                            if db:
+                                db.publish_log("info", f"Fahrzeug {rv.name} -> Loadpoint {lp.name}")
                 log.info("Renault-Fahrzeug geladen: %s", rv.name)
-            except ImportError:
-                log.warning("renault-api nicht installiert — pip install renault-api")
+            except ImportError as e:
+                log.warning("Renault Import-Fehler: %s", e)
+                if db:
+                    db.publish_log("error", f"Renault Import-Fehler: {e}")
             except Exception as e:
-                log.error("Renault-Fahrzeug fehlgeschlagen: %s", e)
+                log.error("Renault-Fahrzeug fehlgeschlagen: %s", e, exc_info=True)
+                if db:
+                    db.publish_log("error", f"Renault-Fahrzeug fehlgeschlagen: {e}")
 
     return s
 
