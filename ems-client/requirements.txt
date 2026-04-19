@@ -4,6 +4,7 @@
 # Core
 pymodbus>=3.5
 pyyaml>=6.0
+requests>=2.31  # Fahrzeug-APIs (Renault), Solar Forecast, AWATTar Tarif
 
 # Lokales Dashboard (FastAPI)
 fastapi>=0.109
