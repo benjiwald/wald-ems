@@ -120,23 +120,24 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
         return self._enabled
 
     def enable(self, on: bool) -> None:
-        # Phasen einmalig auf 3 setzen (fuer Zoe: NIE Phasenumschaltung)
-        if on and not self._phases_written and "phase_count_max" in self.register_map:
-            # Erst lesen was aktuell gesetzt ist
-            current_phases = self._read_reg("phase_count_max")
-            ok = self._write_reg("phase_count_max", 3)
-            after = self._read_reg("phase_count_max")
-            # Phasen-Hardware-Fähigkeit lesen (Register 36, read-only)
+        # Einmalig diagnostische Register lesen (NICHT schreiben!)
+        # evcc aendert phase_count_max bewusst nicht — das verwirrt manche Fahrzeuge
+        if on and not self._phases_written:
             try:
+                current_phases = self._read_reg("phase_count_max") if "phase_count_max" in self.register_map else 0
                 max_hw = self._get_conn().read_register(36, "uint16", 1, self.unit_id, "lsw") or 0
-            except Exception:
-                max_hw = 0
+                log.info("NRG Kick %s: phase_count_max=%.0f, HW-Max=%d (nicht veraendert)",
+                         self.name, current_phases, max_hw)
+                if max_hw < 3:
+                    log.warning("NRG Kick %s: Hardware-Adapter unterstuetzt nur %dP!",
+                                self.name, max_hw)
+                if current_phases < 3:
+                    log.warning("NRG Kick %s: phase_count_max=%.0f (< 3). "
+                                "In NRG Kick App auf 3 setzen fuer 3P-Laden.",
+                                self.name, current_phases)
+            except Exception as e:
+                log.debug("Diagnose-Read fehlgeschlagen: %s", e)
             self._phases_written = True
-            log.info("NRG Kick %s: phase_count_max %.0f→3 (danach: %.0f), HW-Max=%d",
-                     self.name, current_phases, after, max_hw)
-            if max_hw < 3:
-                log.warning("NRG Kick %s: Hardware-Adapter unterstuetzt nur %dP! "
-                            "Fuer 3P-Laden CEE-rot Adapter verwenden.", self.name, max_hw)
 
         # Register 195: Pause State (0=run, 1=pause) — invertiert!
         if "charging_pause" in self.register_map:

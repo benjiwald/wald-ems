@@ -9,6 +9,8 @@ interface LoadpointProps {
   power_w: number;
   current_a: number;
   phases: number;
+  active_phases?: number;
+  currents?: number[] | null;
   energy_kwh: number;
   vehicle?: string;
   vehicle_soc?: number;
@@ -50,7 +52,7 @@ function calcTimeToTarget(
 }
 
 export default function LoadpointCard({
-  name, mode, status, power_w, current_a, phases, energy_kwh,
+  name, mode, status, power_w, current_a, phases, active_phases, currents, energy_kwh,
   vehicle, vehicle_soc, target_soc, min_soc, battery_kwh, battery_boost,
   onModeChange, onBatteryBoostChange,
 }: LoadpointProps) {
@@ -80,8 +82,17 @@ export default function LoadpointCard({
       <div className="mb-4">
         <p className="mono text-2xl font-bold">{formatPower(power_w)}</p>
         <p className="text-xs text-muted-foreground">
-          {current_a || 0}A / {phases}P &middot; {(energy_kwh || 0).toFixed(1)} kWh
+          {current_a || 0}A / {active_phases ?? phases}P &middot; {(energy_kwh || 0).toFixed(1)} kWh
+          {active_phases != null && active_phases !== phases && isCharging && (
+            <span className="ml-1 text-amber-500">({phases}P konfiguriert)</span>
+          )}
         </p>
+        {/* Live-Phasenströme L1/L2/L3 */}
+        {currents && isCharging && (
+          <p className="text-xs mono text-muted-foreground mt-0.5">
+            L1:{currents[0]?.toFixed(1)}A &middot; L2:{currents[1]?.toFixed(1)}A &middot; L3:{currents[2]?.toFixed(1)}A
+          </p>
+        )}
       </div>
 
       {/* Vehicle info with SoC bar */}

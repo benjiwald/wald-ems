@@ -407,6 +407,20 @@ class Loadpoint:
         return sessions
 
     def state(self) -> dict:
+        # Live-Phasenströme lesen wenn Charger es unterstützt
+        currents = None
+        active_phases = self.phases
+        if isinstance(self.charger, PhaseCurrents):
+            try:
+                l1, l2, l3 = self.charger.currents()
+                currents = [round(l1, 1), round(l2, 1), round(l3, 1)]
+                # Phase aktiv wenn > 0.5A
+                active_phases = sum(1 for i in (l1, l2, l3) if i > 0.5)
+                if active_phases == 0:
+                    active_phases = self.phases
+            except Exception:
+                pass
+
         result = {
             "id": self.id,
             "name": self.name,
@@ -414,7 +428,9 @@ class Loadpoint:
             "status": self._status,
             "charging_power_w": round(self._charging_power_w),
             "target_current_a": round(self._target_current_a, 1),
-            "phases": self.phases,
+            "phases": self.phases,               # Config
+            "active_phases": active_phases,      # Live gemessen
+            "currents": currents,                # [L1, L2, L3] in Ampere
             "enabled": self._enabled,
             "target_soc": self.target_soc,
             "min_soc": self.min_soc,

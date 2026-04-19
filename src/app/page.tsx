@@ -31,6 +31,8 @@ interface SiteState {
     min_soc?: number;
     battery_kwh?: number;
     battery_boost?: boolean;
+    active_phases?: number;
+    currents?: number[] | null;
   }>;
   updated_at?: string;
 }
@@ -183,6 +185,8 @@ export default function Dashboard() {
                 power_w={lp.power_w || lp.charging_power_w || 0}
                 current_a={(lp.power_w || lp.charging_power_w || 0) > 100 ? (lp.current_a || lp.target_current_a || 0) : 0}
                 phases={lp.phases || 1}
+                active_phases={lp.active_phases}
+                currents={lp.currents}
                 energy_kwh={lp.session_energy_kwh || lp.energy_kwh || 0}
                 vehicle={lp.vehicle}
                 vehicle_soc={lp.vehicle_soc ?? undefined}
