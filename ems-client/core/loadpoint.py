@@ -302,20 +302,34 @@ class Loadpoint:
         return target_a
 
     def _set_charging(self, enable: bool, target_a: float):
-        """Setzt Charger-Status — evcc-Stil: nur bei Aenderung schreiben.
+        """Setzt Charger-Status — Read-before-write fuer Watchdog-Recovery.
 
-        Kein Heartbeat, kein Watchdog-Workaround: NRG Kick Gen2 braucht
-        laut evcc keine periodischen Schreibzugriffe.
+        Jeden Zyklus pruefen wir ob der Charger WIRKLICH enabled ist.
+        Wenn er sich selbst gepaust hat (Watchdog, interne Logik),
+        setzen wir das Pause-Register zurueck. Kein blindes Ueberschreiben.
+
+        Strom-Setpoint (Register 194) wird jeden Zyklus geschrieben (wie evcc).
         """
-        if enable != self._last_written_enabled:
+        # Echten Charger-Status lesen — fangen Watchdog-Auto-Pause ab
+        try:
+            actually_enabled = self.charger.enabled()
+        except Exception:
+            actually_enabled = None
+
+        need_enable_write = (
+            enable != self._last_written_enabled
+            or (enable and actually_enabled is False)
+        )
+
+        if need_enable_write:
+            if enable and actually_enabled is False and self._last_written_enabled:
+                log.warning("LP %s: Charger selbst-gepaust (Watchdog?) — re-enable", self.name)
             self.charger.enable(enable)
             self._last_written_enabled = enable
             self._enabled = enable
             self._charger_switch_time = time.time()
 
-        # Strom-Setpoint in JEDEM Zyklus schreiben (wie evcc) —
-        # Register 194 ist safe und verhindert NRG Kick Watchdog.
-        # Register 195 (Pause) wird nur bei Statuswechsel geschrieben.
+        # Strom-Setpoint in JEDEM Zyklus schreiben (wie evcc) — Register 194
         if enable and target_a >= self.min_current:
             self.charger.max_current(target_a)
             self._last_written_current = target_a

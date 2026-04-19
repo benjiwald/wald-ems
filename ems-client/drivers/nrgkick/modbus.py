@@ -117,6 +117,15 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
         return s
 
     def enabled(self) -> bool:
+        # Echten Pause-Register-Status lesen (0=run, 1=pause)
+        # Damit koennen wir erkennen wenn sich der Charger selbst gepaust hat
+        if "charging_pause" in self.register_map:
+            try:
+                pause_val = self._read_reg("charging_pause")
+                if pause_val is not None:
+                    return pause_val < 0.5  # 0=run=enabled
+            except Exception:
+                pass
         return self._enabled
 
     def enable(self, on: bool) -> None:
