@@ -193,9 +193,39 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
             self._cache["charging_power"] = 0
             return 0.0
 
-        # Register 210 (Combined Active Power) — wie evcc
+        # Register 210 (Combined Active Power)
         combined = self._read_reg("charging_power") if "charging_power" in self.register_map else 0
         result = combined or 0
+
+        # Diagnose-Log bei Ladevorgaengen: Raw-Register + Vergleichswerte
+        if result > 100:
+            try:
+                # Raw-Wert von Register 210 lesen (ohne Skalierung)
+                conn = self._get_conn()
+                import logging
+                regs = conn._ensure_connected().read_holding_registers(210, count=2, device_id=self.unit_id)
+                if not regs.isError():
+                    raw_lsw = regs.registers[0] | (regs.registers[1] << 16)
+                    raw_msw = (regs.registers[0] << 16) | regs.registers[1]
+                    u_l1 = self._read_reg("voltage_l1") or 0
+                    u_l2 = self._read_reg("voltage_l2") or 0
+                    u_l3 = self._read_reg("voltage_l3") or 0
+                    p_l1 = self._read_reg("power_l1") or 0
+                    p_l2 = self._read_reg("power_l2") or 0
+                    p_l3 = self._read_reg("power_l3") or 0
+                    apparent = (u_l1 * l1 + u_l2 * (l2 or 0) + u_l3 * (l3 or 0))
+                    pf = result / apparent if apparent > 0 else 0
+                    log.info("NRG DIAG: reg210_raw_lsw=%d raw_msw=%d → %.0fW | "
+                             "L1=%.1fA×%.1fV L2=%.1fA×%.1fV L3=%.1fA×%.1fV | "
+                             "P_L1=%.0fW P_L2=%.0fW P_L3=%.0fW sum=%.0fW | "
+                             "apparent=%.0fVA PF=%.2f",
+                             raw_lsw, raw_msw, result,
+                             l1 or 0, u_l1, l2 or 0, u_l2, l3 or 0, u_l3,
+                             p_l1, p_l2, p_l3, p_l1+p_l2+p_l3,
+                             apparent, pf)
+            except Exception as e:
+                log.debug("Diag fehlgeschlagen: %s", e)
+
         self._cache["charging_power"] = result
         return result
 

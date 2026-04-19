@@ -425,15 +425,30 @@ class Loadpoint:
     def state(self) -> dict:
         # Live-Phasenströme lesen wenn Charger es unterstützt
         currents = None
+        voltages = None
+        apparent_va = None
+        power_factor = None
         active_phases = self.phases
         if isinstance(self.charger, PhaseCurrents):
             try:
                 l1, l2, l3 = self.charger.currents()
                 currents = [round(l1, 1), round(l2, 1), round(l3, 1)]
-                # Phase aktiv wenn > 0.5A
                 active_phases = sum(1 for i in (l1, l2, l3) if i > 0.5)
                 if active_phases == 0:
                     active_phases = self.phases
+                # Spannungen lesen (NRG Kick hat Register 217-219)
+                if hasattr(self.charger, '_read_reg'):
+                    try:
+                        u1 = self.charger._read_reg("voltage_l1") or 0
+                        u2 = self.charger._read_reg("voltage_l2") or 0
+                        u3 = self.charger._read_reg("voltage_l3") or 0
+                        if u1 > 100:  # plausible
+                            voltages = [round(u1, 1), round(u2, 1), round(u3, 1)]
+                            apparent_va = round(u1 * l1 + u2 * l2 + u3 * l3)
+                            if apparent_va > 0 and self._charging_power_w > 0:
+                                power_factor = round(self._charging_power_w / apparent_va, 2)
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -447,6 +462,9 @@ class Loadpoint:
             "phases": self.phases,               # Config
             "active_phases": active_phases,      # Live gemessen
             "currents": currents,                # [L1, L2, L3] in Ampere
+            "voltages": voltages,                # [L1, L2, L3] in Volt
+            "apparent_va": apparent_va,          # Scheinleistung VA
+            "power_factor": power_factor,        # cos phi
             "enabled": self._enabled,
             "target_soc": self.target_soc,
             "min_soc": self.min_soc,

@@ -33,6 +33,9 @@ interface SiteState {
     battery_boost?: boolean;
     active_phases?: number;
     currents?: number[] | null;
+    voltages?: number[] | null;
+    apparent_va?: number | null;
+    power_factor?: number | null;
   }>;
   updated_at?: string;
 }
@@ -187,6 +190,9 @@ export default function Dashboard() {
                 phases={lp.phases || 1}
                 active_phases={lp.active_phases}
                 currents={lp.currents}
+                voltages={lp.voltages}
+                apparent_va={lp.apparent_va}
+                power_factor={lp.power_factor}
                 energy_kwh={lp.session_energy_kwh || lp.energy_kwh || 0}
                 vehicle={lp.vehicle}
                 vehicle_soc={lp.vehicle_soc ?? undefined}

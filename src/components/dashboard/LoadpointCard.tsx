@@ -11,6 +11,9 @@ interface LoadpointProps {
   phases: number;
   active_phases?: number;
   currents?: number[] | null;
+  voltages?: number[] | null;
+  apparent_va?: number | null;
+  power_factor?: number | null;
   energy_kwh: number;
   vehicle?: string;
   vehicle_soc?: number;
@@ -52,7 +55,8 @@ function calcTimeToTarget(
 }
 
 export default function LoadpointCard({
-  name, mode, status, power_w, current_a, phases, active_phases, currents, energy_kwh,
+  name, mode, status, power_w, current_a, phases, active_phases, currents, voltages,
+  apparent_va, power_factor, energy_kwh,
   vehicle, vehicle_soc, target_soc, min_soc, battery_kwh, battery_boost,
   onModeChange, onBatteryBoostChange,
 }: LoadpointProps) {
@@ -91,6 +95,14 @@ export default function LoadpointCard({
         {currents && isCharging && (
           <p className="text-xs mono text-muted-foreground mt-0.5">
             L1:{currents[0]?.toFixed(1)}A &middot; L2:{currents[1]?.toFixed(1)}A &middot; L3:{currents[2]?.toFixed(1)}A
+          </p>
+        )}
+        {/* Spannungen + Scheinleistung + PF */}
+        {voltages && isCharging && (
+          <p className="text-xs mono text-muted-foreground mt-0.5">
+            U: {voltages[0]?.toFixed(0)}/{voltages[1]?.toFixed(0)}/{voltages[2]?.toFixed(0)}V
+            {apparent_va != null && ` · S=${(apparent_va/1000).toFixed(1)}kVA`}
+            {power_factor != null && ` · PF=${power_factor.toFixed(2)}`}
           </p>
         )}
       </div>
