@@ -23,6 +23,7 @@ interface LoadpointProps {
   battery_boost?: boolean;
   onModeChange: (mode: string) => void;
   onBatteryBoostChange?: (enable: boolean) => void;
+  onTargetSocChange?: (value: number) => void;
 }
 
 const MODES = [
@@ -58,7 +59,7 @@ export default function LoadpointCard({
   name, mode, status, power_w, current_a, phases, active_phases, currents, voltages,
   apparent_va, power_factor, energy_kwh,
   vehicle, vehicle_soc, target_soc, min_soc, battery_kwh, battery_boost,
-  onModeChange, onBatteryBoostChange,
+  onModeChange, onBatteryBoostChange, onTargetSocChange,
 }: LoadpointProps) {
   // IEC 61851 Status: A=getrennt, B=verbunden, C=laden, F=fehler
   const isCharging = status === "C" || status === "charging";
@@ -142,6 +143,24 @@ export default function LoadpointCard({
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Clock className="w-3 h-3" />
               <span>~{formatDuration(timeToTarget)} bis {effectiveTargetSoc}%</span>
+            </div>
+          )}
+          {/* Target SoC Slider */}
+          {onTargetSocChange && (
+            <div className="pt-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                <span>Ziel-Ladestand</span>
+                <span className="mono font-medium text-foreground">{effectiveTargetSoc}%</span>
+              </div>
+              <input
+                type="range"
+                min={50}
+                max={100}
+                step={5}
+                value={effectiveTargetSoc}
+                onChange={(e) => onTargetSocChange(Number(e.target.value))}
+                className="w-full accent-primary cursor-pointer"
+              />
             </div>
           )}
         </div>

@@ -203,6 +203,21 @@ def handle_command(cmd: dict):
                 db.publish_log("info", f"Ladepunkt {lp.name}: Battery Boost {'AN' if enable else 'AUS'}")
                 break
 
+    elif action == "set_target_soc":
+        lp_name = cmd.get("loadpoint", "")
+        value = float(cmd.get("value", 100))
+        value = max(0, min(100, value))
+        for lp in (site.loadpoints if site else []):
+            if lp.name == lp_name or lp.id == lp_name:
+                lp.target_soc = value
+                # In YAML persistieren
+                try:
+                    config.update_loadpoint_field(lp_name, "target_soc", value)
+                except Exception as e:
+                    log.debug("Target-SoC Persist-Fehler: %s", e)
+                db.publish_log("info", f"Ladepunkt {lp.name}: Ziel-SoC → {value:.0f}%")
+                break
+
     elif action == "restart_client":
         db.publish_log("info", "Neustart auf Befehl")
         time.sleep(1)

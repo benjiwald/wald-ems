@@ -979,6 +979,41 @@ function TabFahrzeuge({ config, editing, draft, setDraft, onAdd, onEdit, onDelet
               </select>
             </div>
           </div>
+
+          {/* Renault/Dacia Cloud-Login fuer SoC-Abfrage */}
+          {(draft.manufacturer?.toLowerCase() === "renault" || draft.manufacturer?.toLowerCase() === "dacia") && (
+            <div className="space-y-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <p className="text-xs font-medium text-primary">MyRenault/MyDacia Zugangsdaten (fuer Ladestand-Abfrage)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">E-Mail</label>
+                  <input type="email" autoComplete="off" value={draft.credentials?.email ?? ""} onChange={(e) => setDraft({ ...draft, credentials: { ...(draft.credentials || {}), email: e.target.value } })} className={inputClass} placeholder="my.renault@example.com" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Passwort</label>
+                  <input type="password" autoComplete="new-password" value={draft.credentials?.password ?? ""} onChange={(e) => setDraft({ ...draft, credentials: { ...(draft.credentials || {}), password: e.target.value } })} className={inputClass} placeholder="••••••••" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Land / Locale</label>
+                  <select value={draft.locale ?? "de_AT"} onChange={(e) => setDraft({ ...draft, locale: e.target.value })} className={inputClass}>
+                    <option value="de_AT">Oesterreich (de_AT)</option>
+                    <option value="de_DE">Deutschland (de_DE)</option>
+                    <option value="de_CH">Schweiz (de_CH)</option>
+                    <option value="fr_FR">Frankreich (fr_FR)</option>
+                    <option value="it_IT">Italien (it_IT)</option>
+                    <option value="es_ES">Spanien (es_ES)</option>
+                    <option value="nl_NL">Niederlande (nl_NL)</option>
+                    <option value="pt_PT">Portugal (pt_PT)</option>
+                    <option value="en_GB">UK (en_GB)</option>
+                  </select>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                SoC wird alle 5 Minuten von der Renault Cloud abgefragt.
+              </p>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={onCancel} className="px-4 py-2 text-sm rounded-lg bg-muted hover:bg-muted/80 transition-colors">Abbrechen</button>
             <button

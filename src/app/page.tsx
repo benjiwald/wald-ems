@@ -135,6 +135,21 @@ export default function Dashboard() {
     });
   }, []);
 
+  const handleTargetSocChange = useCallback((loadpointName: string, value: number) => {
+    // Optimistic update
+    setState(prev => ({
+      ...prev,
+      loadpoints: prev.loadpoints.map(lp =>
+        lp.name === loadpointName ? { ...lp, target_soc: value } : lp
+      ),
+    }));
+    fetch("/api/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set_target_soc", loadpoint: loadpointName, value }),
+    });
+  }, []);
+
   const timeSince = (() => {
     if (!state.updated_at) return "---";
     const ts = state.updated_at.endsWith("Z") || state.updated_at.includes("+")
@@ -202,6 +217,7 @@ export default function Dashboard() {
                 battery_boost={lp.battery_boost}
                 onModeChange={(mode) => handleModeChange(lp.name, mode)}
                 onBatteryBoostChange={(enable) => handleBatteryBoostChange(lp.name, enable)}
+                onTargetSocChange={(value) => handleTargetSocChange(lp.name, value)}
               />
             ))}
           </div>

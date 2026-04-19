@@ -111,10 +111,27 @@ class ConfigManager:
         pass
 
     def update_loadpoint_field(self, lp_name: str, field: str, value):
-        """Aktualisiert ein Loadpoint-Feld im Speicher."""
+        """Aktualisiert ein Loadpoint-Feld im Speicher UND in der YAML-Datei."""
+        updated = False
         for lp in self.loadpoints:
             if lp.get("name") == lp_name:
                 lp[field] = value
+                updated = True
+        if not updated:
+            return
+        # In YAML persistieren
+        try:
+            with open(self.config_path, "r") as f:
+                raw = yaml.safe_load(f) or {}
+            for lp in raw.get("loadpoints", []):
+                if lp.get("name") == lp_name:
+                    lp[field] = value
+            with open(self.config_path, "w") as f:
+                yaml.safe_dump(raw, f, default_flow_style=False, sort_keys=False)
+            self._mtime = os.path.getmtime(self.config_path)
+            log.info("Loadpoint %s: %s=%s → YAML gespeichert", lp_name, field, value)
+        except Exception as e:
+            log.error("Loadpoint-Feld YAML-Save fehlgeschlagen: %s", e)
 
     def handle_config_push(self, config: dict):
         """Stub — kein MQTT-Push im lokalen Modus."""
