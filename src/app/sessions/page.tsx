@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Header from "@/components/dashboard/Header";
-import { Sun, Plug2, Zap, Clock, Car, BarChart3 } from "lucide-react";
+import { Sun, Plug2, Zap, Clock, Car, BarChart3, Trash2 } from "lucide-react";
 
 interface Session {
   id: number;
@@ -95,7 +95,22 @@ export default function SessionsPage() {
     <div className="min-h-screen">
       <Header />
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-        <h2 className="text-lg font-semibold">Ladevorgaenge</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Ladevorgaenge</h2>
+          {sessions.length > 0 && (
+            <button
+              onClick={async () => {
+                if (!confirm(`Alle ${sessions.length} Ladevorgaenge unwiderruflich loeschen?`)) return;
+                const r = await fetch("/api/sessions", { method: "DELETE" });
+                if (r.ok) setSessions([]);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Statistik zuruecksetzen
+            </button>
+          )}
+        </div>
 
         {stats && (
           <>
