@@ -313,10 +313,12 @@ class Loadpoint:
             self._enabled = enable
             self._charger_switch_time = time.time()
 
+        # Strom-Setpoint in JEDEM Zyklus schreiben (wie evcc) —
+        # Register 194 ist safe und verhindert NRG Kick Watchdog.
+        # Register 195 (Pause) wird nur bei Statuswechsel geschrieben.
         if enable and target_a >= self.min_current:
-            if abs(target_a - self._last_written_current) >= 0.1:
-                self.charger.max_current(target_a)
-                self._last_written_current = target_a
+            self.charger.max_current(target_a)
+            self._last_written_current = target_a
 
         self._target_current_a = target_a
         self._enabled = enable
