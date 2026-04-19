@@ -184,24 +184,9 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
             self._cache["charging_power"] = 0
             return 0.0
 
-        # Per-Phasen-Power summieren (zuverlaessiger als Register 210)
-        p1 = self._read_reg("power_l1") if "power_l1" in self.register_map else 0
-        p2 = self._read_reg("power_l2") if "power_l2" in self.register_map else 0
-        p3 = self._read_reg("power_l3") if "power_l3" in self.register_map else 0
-        sum_power = (p1 or 0) + (p2 or 0) + (p3 or 0)
-
-        # Combined Register 210 zum Vergleich
+        # Register 210 (Combined Active Power) — wie evcc
         combined = self._read_reg("charging_power") if "charging_power" in self.register_map else 0
-
-        # Diagnose-Log wenn Werte stark abweichen
-        if abs((combined or 0) - sum_power) > 200:
-            log.warning("NRG Kick %s: Power-Diskrepanz! reg210=%.0fW vs sum(L1+L2+L3)=%.0fW "
-                        "(L1=%.0fW L2=%.0fW L3=%.0fW, I1=%.1fA I2=%.1fA I3=%.1fA)",
-                        self.name, combined or 0, sum_power, p1 or 0, p2 or 0, p3 or 0,
-                        l1 or 0, l2 or 0, l3 or 0)
-
-        # Summe der Phasen bevorzugen wenn > 0
-        result = sum_power if sum_power > 50 else (combined or 0)
+        result = combined or 0
         self._cache["charging_power"] = result
         return result
 
