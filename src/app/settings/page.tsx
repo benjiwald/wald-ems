@@ -844,11 +844,11 @@ function TabLadepunkte({ config, editing, draft, setDraft, onAdd, onEdit, onDele
             </div>
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">Min. Strom (A)</label>
-              <input type="number" value={draft.min_current ?? 6} onChange={(e) => setDraft({ ...draft, min_current: Number(e.target.value) })} className={inputClass} min={6} max={32} step={1} />
+              <input type="number" value={draft.min_current ?? 6} onChange={(e) => setDraft({ ...draft, min_current: Number(e.target.value) })} className={inputClass} min={6} max={32} step={0.5} />
             </div>
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">Max. Strom (A)</label>
-              <input type="number" value={draft.max_current ?? 16} onChange={(e) => setDraft({ ...draft, max_current: Number(e.target.value) })} className={inputClass} min={6} max={32} step={1} />
+              <input type="number" value={draft.max_current ?? 16} onChange={(e) => setDraft({ ...draft, max_current: Number(e.target.value) })} className={inputClass} min={6} max={32} step={0.5} />
             </div>
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">Phasen</label>
