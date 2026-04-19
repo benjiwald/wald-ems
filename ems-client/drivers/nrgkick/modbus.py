@@ -122,10 +122,21 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
     def enable(self, on: bool) -> None:
         # Phasen einmalig auf 3 setzen (fuer Zoe: NIE Phasenumschaltung)
         if on and not self._phases_written and "phase_count_max" in self.register_map:
+            # Erst lesen was aktuell gesetzt ist
+            current_phases = self._read_reg("phase_count_max")
             ok = self._write_reg("phase_count_max", 3)
-            if ok:
-                self._phases_written = True
-                log.info("NRG Kick %s: phase_count_max=3 gesetzt (Zoe 3P)", self.name)
+            after = self._read_reg("phase_count_max")
+            # Phasen-Hardware-Fähigkeit lesen (Register 36, read-only)
+            try:
+                max_hw = self._get_conn().read_register(36, "uint16", 1, self.unit_id, "lsw") or 0
+            except Exception:
+                max_hw = 0
+            self._phases_written = True
+            log.info("NRG Kick %s: phase_count_max %.0f→3 (danach: %.0f), HW-Max=%d",
+                     self.name, current_phases, after, max_hw)
+            if max_hw < 3:
+                log.warning("NRG Kick %s: Hardware-Adapter unterstuetzt nur %dP! "
+                            "Fuer 3P-Laden CEE-rot Adapter verwenden.", self.name, max_hw)
 
         # Register 195: Pause State (0=run, 1=pause) — invertiert!
         if "charging_pause" in self.register_map:
