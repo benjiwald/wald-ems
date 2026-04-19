@@ -226,10 +226,8 @@ class Loadpoint:
         elif self._ever_enabled:
             self._set_charging(False, target_a)
 
-        # 10. Aktive Phasenerkennung
+        # 10. Aktive Phasen: immer aus Config (Zoe: NIE umschalten, immer 3P)
         active_phases = self.phases
-        if should_enable and isinstance(self.charger, PhaseCurrents):
-            active_phases = self._detect_active_phases()
 
         used_w = target_a * VOLTAGE * active_phases if should_enable else 0
         log.info(
@@ -304,20 +302,23 @@ class Loadpoint:
         return target_a
 
     def _set_charging(self, enable: bool, target_a: float):
-        """Setzt Charger-Status. Heartbeat alle 60s fuer enable + current.
+        """Setzt Charger-Status.
 
-        Verhindert NRG Kick Modbus-Watchdog Timeout (~5min).
+        Enable/Disable NUR bei Statusaenderung — jeder Schreibvorgang auf
+        Pause-Register (195) startet NRG Kick Ladesession neu -> Oszillation.
+
+        Strom-Setpoint (Register 194) ist safe: bei Aenderung oder als
+        Heartbeat alle 60s (verhindert Modbus-Watchdog Timeout).
         """
         now = time.time()
         heartbeat = (now - self._last_write_time) >= 60
 
-        if enable != self._last_written_enabled or heartbeat:
+        if enable != self._last_written_enabled:
             self.charger.enable(enable)
             self._last_written_enabled = enable
             self._enabled = enable
+            self._charger_switch_time = now
             self._last_write_time = now
-            if enable != self._enabled:
-                self._charger_switch_time = now
 
         if enable and target_a >= self.min_current:
             if abs(target_a - self._last_written_current) >= 0.5 or heartbeat:

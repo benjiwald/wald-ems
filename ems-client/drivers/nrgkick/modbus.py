@@ -74,6 +74,7 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
         self._cache: dict[str, float] = {}
         self._enabled = True  # NRG Kick ist standardmäßig aktiv
         self._last_status = "A"
+        self._phases_written: bool = False  # Einmaliges Schreiben von phase_count_max=3
 
     def _get_conn(self) -> ModbusConnection:
         if self._conn is None:
@@ -121,12 +122,19 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
         return self._enabled
 
     def enable(self, on: bool) -> None:
+        # Phasen einmalig auf 3 setzen (fuer Zoe: NIE Phasenumschaltung)
+        if on and not self._phases_written and "phase_count_max" in self.register_map:
+            ok = self._write_reg("phase_count_max", 3)
+            if ok:
+                self._phases_written = True
+                log.info("NRG Kick %s: phase_count_max=3 gesetzt (Zoe 3P)", self.name)
+
         # Register 195: Pause State (0=run, 1=pause) — invertiert!
         if "charging_pause" in self.register_map:
             pause_val = 0.0 if on else 1.0  # on=True → pause=0 (run)
             ok = self._write_reg("charging_pause", pause_val)
-            log.debug("NRG Kick %s enable(%s): pause=%d → %s",
-                      self.name, on, int(pause_val), "OK" if ok else "FAIL")
+            log.info("NRG Kick %s enable(%s): pause=%d → %s",
+                     self.name, on, int(pause_val), "OK" if ok else "FAIL")
         elif "max_current_setpoint" in self.register_map:
             if not on:
                 ok = self._write_reg("max_current_setpoint", 0)
