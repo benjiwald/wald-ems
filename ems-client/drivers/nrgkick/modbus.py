@@ -176,17 +176,34 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
     # ── Meter Interface ───────────────────────────────────────────────────────
 
     def current_power(self) -> float:
-        # Phasenströme als Validator: wenn kein Strom fließt, ist Power ein Phantom-Wert
+        # Phasenströme als Validator: wenn kein Strom fließt, 0W
         l1 = self._read_reg("current_l1") if "current_l1" in self.register_map else None
-        if l1 is not None and l1 < 0.5:
+        l2 = self._read_reg("current_l2") if "current_l2" in self.register_map else 0
+        l3 = self._read_reg("current_l3") if "current_l3" in self.register_map else 0
+        if l1 is not None and l1 < 0.5 and (l2 or 0) < 0.5 and (l3 or 0) < 0.5:
             self._cache["charging_power"] = 0
             return 0.0
-        for key in ("charging_power", "power"):
-            if key in self.register_map:
-                val = self._read_reg(key)
-                self._cache[key] = val
-                return val
-        return 0.0
+
+        # Per-Phasen-Power summieren (zuverlaessiger als Register 210)
+        p1 = self._read_reg("power_l1") if "power_l1" in self.register_map else 0
+        p2 = self._read_reg("power_l2") if "power_l2" in self.register_map else 0
+        p3 = self._read_reg("power_l3") if "power_l3" in self.register_map else 0
+        sum_power = (p1 or 0) + (p2 or 0) + (p3 or 0)
+
+        # Combined Register 210 zum Vergleich
+        combined = self._read_reg("charging_power") if "charging_power" in self.register_map else 0
+
+        # Diagnose-Log wenn Werte stark abweichen
+        if abs((combined or 0) - sum_power) > 200:
+            log.warning("NRG Kick %s: Power-Diskrepanz! reg210=%.0fW vs sum(L1+L2+L3)=%.0fW "
+                        "(L1=%.0fW L2=%.0fW L3=%.0fW, I1=%.1fA I2=%.1fA I3=%.1fA)",
+                        self.name, combined or 0, sum_power, p1 or 0, p2 or 0, p3 or 0,
+                        l1 or 0, l2 or 0, l3 or 0)
+
+        # Summe der Phasen bevorzugen wenn > 0
+        result = sum_power if sum_power > 50 else (combined or 0)
+        self._cache["charging_power"] = result
+        return result
 
     # ── PhaseCurrents Interface ───────────────────────────────────────────────
 
