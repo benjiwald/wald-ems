@@ -130,9 +130,11 @@ class Loadpoint:
 
         # Hysterese (evcc-Defaults)
         # Asymmetrische Hysterese (evcc-inspiriert, Wolken-tolerant):
-        # Enable: braucht min_current-Leistung fuer 60s (damit Start sinnvoll ist)
+        # Enable: braucht min_current-Wirkleistung fuer 60s (damit Start sinnvoll ist)
         # Disable: erst bei echtem Netzbezug UND 5 Min lang (toleriert Wolken)
-        default_enable_threshold = self.min_current * VOLTAGE * self.phases
+        # Hinweis: 9A×3P×230V = 6210VA (Schein), aber Zoe zieht bei PF~0.85 nur ~5300W (Wirk).
+        # Wir verwenden deshalb die erwartete Wirkleistung, nicht die Scheinleistung.
+        default_enable_threshold = self.min_current * VOLTAGE * self.phases * 0.85
         self.enable_threshold_w = float(config.get("enable_threshold_w", default_enable_threshold))
         self.enable_delay_s = int(config.get("enable_delay_s", 60))       # 1 Min
         self.disable_threshold_w = float(config.get("disable_threshold_w", 0))  # evcc-Default: 0W
