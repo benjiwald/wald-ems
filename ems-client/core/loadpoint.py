@@ -162,6 +162,10 @@ class Loadpoint:
         self._ever_enabled: bool = False
         self._last_write_time: float = 0
 
+        # Zombie-Wake-Up (evcc-Style): wenn enabled+connected aber kein Strom
+        self._zombie_since: float | None = None
+        self._last_wake_up: float = 0
+
         # Session Tracking
         self._session: ChargingSession | None = None
         self._completed_sessions: list[dict] = []
@@ -209,6 +213,31 @@ class Loadpoint:
 
         # 3. Session aktualisieren (Status-basiert wie evcc)
         self._update_session()
+
+        # 3a. Zombie-Wake-Up (evcc-Style):
+        # Wenn enabled+verbunden (B) seit >5 min und kein Strom fliesst,
+        # Zoe/Fahrzeug ist wahrscheinlich eingeschlafen. Pause-Register
+        # togglen (1s aus, dann wieder an) triggert neuen CP-Signal-Wechsel.
+        now = time.time()
+        if (self._last_written_enabled and self._status == "B"
+                and self._charging_power_w < 50 and self._ever_enabled):
+            if self._zombie_since is None:
+                self._zombie_since = now
+            elif (now - self._zombie_since > 300  # 5 min Zombie
+                  and now - self._last_wake_up > 600):  # max alle 10 min
+                log.warning("LP %s: Zombie erkannt (Status B ohne Strom seit %.0fs) — Wake-Up-Toggle",
+                            self.name, now - self._zombie_since)
+                try:
+                    self.charger.enable(False)
+                    time.sleep(1.0)
+                    self.charger.enable(True)
+                    # _last_written_enabled bleibt True (Ziel-Status)
+                    self._last_wake_up = now
+                    self._zombie_since = None
+                except Exception as e:
+                    log.error("LP %s: Wake-Up fehlgeschlagen: %s", self.name, e)
+        else:
+            self._zombie_since = None  # Zoe zieht Strom → reset
 
         # Kein Fahrzeug verbunden → nichts zu tun
         if self._status == "A":
