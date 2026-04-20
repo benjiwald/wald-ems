@@ -129,11 +129,14 @@ class Loadpoint:
         self.battery_boost = bool(config.get("battery_boost", False))
 
         # Hysterese (evcc-Defaults)
-        default_threshold = self.min_current * VOLTAGE * self.phases
-        self.enable_threshold_w = float(config.get("enable_threshold_w", default_threshold))
-        self.enable_delay_s = int(config.get("enable_delay_s", 60))      # evcc: 1 Min
-        self.disable_threshold_w = float(config.get("disable_threshold_w", default_threshold))
-        self.disable_delay_s = int(config.get("disable_delay_s", 180))   # evcc: 3 Min
+        # Asymmetrische Hysterese (evcc-inspiriert, Wolken-tolerant):
+        # Enable: braucht min_current-Leistung fuer 60s (damit Start sinnvoll ist)
+        # Disable: erst bei echtem Netzbezug UND 5 Min lang (toleriert Wolken)
+        default_enable_threshold = self.min_current * VOLTAGE * self.phases
+        self.enable_threshold_w = float(config.get("enable_threshold_w", default_enable_threshold))
+        self.enable_delay_s = int(config.get("enable_delay_s", 60))       # 1 Min
+        self.disable_threshold_w = float(config.get("disable_threshold_w", 0))  # evcc-Default: 0W
+        self.disable_delay_s = int(config.get("disable_delay_s", 300))    # 5 Min (vs. evcc 3 Min)
 
         self.charger = charger
         self.meter = meter
@@ -313,17 +316,20 @@ class Loadpoint:
                 self._enable_timer = None
                 return 0  # Unter Threshold
         else:
-            # Bereits aktiv → Disable prüfen wenn unter Minimum
-            if target_a < self.min_current:
+            # Bereits aktiv → Disable nur bei echtem Netzbezug (evcc-Style)
+            # Bei kurzen Wolken weiterladen mit min_current statt abzubrechen
+            if available_w < self.disable_threshold_w:
                 if self._disable_timer is None:
                     self._disable_timer = now
-                    log.debug("LP %s: Disable-Timer gestartet (%.1fA < %.1fA)",
-                              self.name, target_a, self.min_current)
+                    log.debug("LP %s: Disable-Timer gestartet (%.0fW < %.0fW)",
+                              self.name, available_w, self.disable_threshold_w)
                 elif now - self._disable_timer >= self.disable_delay_s:
-                    log.info("LP %s: PV Disable — unter Minimum für %ds",
-                             self.name, self.disable_delay_s)
+                    log.info("LP %s: PV Disable — %.0fW < %.0fW fuer %ds",
+                             self.name, available_w, self.disable_threshold_w, self.disable_delay_s)
                     self._disable_timer = None
                     return 0  # Disable!
+                # Timer laeuft: weiterladen mit min_current (aus Netz/Batterie)
+                return max(target_a, self.min_current)
                 return self.min_current  # Noch halten mit Minimum
             else:
                 self._disable_timer = None
