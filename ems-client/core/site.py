@@ -146,7 +146,16 @@ class Site:
         # Beispiel: LP aus, Grid exportiert 5kW (Einspeisung), Buffer 100W
         #   → available = 0 + 5000 - 100 = 4900W → LP kann mit 4.9kW starten
         #
-        current_lp_power = sum(lp._charging_power_w for lp in self.loadpoints)
+        # LP-Leistung: wenn Auto beauftragt ist (enabled + target > 0), nutze
+        # Soll-Leistung statt gemessene. Das stabilisiert die Berechnung
+        # waehrend des Ramp-Ups und verhindert Oszillation (measured_power
+        # hinkt grid_power hinterher, weil LP.update() spaeter im Zyklus laeuft).
+        def _lp_power_for_calc(lp):
+            if lp._last_written_enabled and lp._target_current_a > 0:
+                return lp._target_current_a * 230 * lp.phases
+            return lp._charging_power_w
+
+        current_lp_power = sum(_lp_power_for_calc(lp) for lp in self.loadpoints)
         surplus_w = current_lp_power - self.grid_power_w - self.buffer_w
 
         # Auto-vor-Batterie (evcc-Style):
