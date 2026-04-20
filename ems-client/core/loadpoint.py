@@ -129,16 +129,13 @@ class Loadpoint:
         self.battery_boost = bool(config.get("battery_boost", False))
 
         # Hysterese (evcc-Defaults)
-        # Asymmetrische Hysterese (evcc-inspiriert, Wolken-tolerant):
-        # Enable: braucht min_current-Wirkleistung fuer 60s (damit Start sinnvoll ist)
-        # Disable: erst bei echtem Netzbezug UND 5 Min lang (toleriert Wolken)
-        # Hinweis: 9A×3P×230V = 6210VA (Schein), aber Zoe zieht bei PF~0.85 nur ~5300W (Wirk).
-        # Wir verwenden deshalb die erwartete Wirkleistung, nicht die Scheinleistung.
-        default_enable_threshold = self.min_current * VOLTAGE * self.phases * 0.85
-        self.enable_threshold_w = float(config.get("enable_threshold_w", default_enable_threshold))
-        self.enable_delay_s = int(config.get("enable_delay_s", 60))       # 1 Min
-        self.disable_threshold_w = float(config.get("disable_threshold_w", 0))  # evcc-Default: 0W
-        self.disable_delay_s = int(config.get("disable_delay_s", 300))    # 5 Min (vs. evcc 3 Min)
+        # Asymmetrische Hysterese — responsiv + Wolken-tolerant:
+        # Enable: 4000W fuer 20s (reagiert schnell auf Sonne, evcc-aehnlich)
+        # Disable: 0W fuer 300s (5 Min, toleriert Wolken, laedt durch mit min_current)
+        self.enable_threshold_w = float(config.get("enable_threshold_w", 4000))
+        self.enable_delay_s = int(config.get("enable_delay_s", 20))       # schnelle Reaktion
+        self.disable_threshold_w = float(config.get("disable_threshold_w", 0))  # evcc-Default
+        self.disable_delay_s = int(config.get("disable_delay_s", 300))    # 5 Min Wolkenpuffer
 
         self.charger = charger
         self.meter = meter
