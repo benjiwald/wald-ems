@@ -149,20 +149,32 @@ class Site:
         current_lp_power = sum(lp._charging_power_w for lp in self.loadpoints)
         surplus_w = current_lp_power - self.grid_power_w - self.buffer_w
 
+        # Auto-vor-Batterie (evcc-Style):
+        # Wenn Hausbatterie gerade laedt UND SoC ueber priority_soc,
+        # steht diese Ladeleistung dem Auto zur Verfuegung (PV-Ueberschuss
+        # geht erst ins Auto, dann in die Batterie).
+        # battery_power_w > 0 = laedt, < 0 = entlaedt
+        battery_redirect_w = 0
+        if self.battery_power_w > 50:  # Batterie laedt
+            if self.priority_soc <= 0 or self.battery_soc >= self.priority_soc:
+                battery_redirect_w = self.battery_power_w
+                log.debug("Auto-Vorrang: Batterie laedt %.0fW -> fuers Auto umleitbar (SoC %.0f%%)",
+                          battery_redirect_w, self.battery_soc)
+
         # Grid-Limit als Obergrenze (schützt vor Überlast am Netzanschluss)
         grid_headroom_w = self.grid_limit_w - self.grid_power_w - self.buffer_w
 
-        self.available_w = min(surplus_w, grid_headroom_w)
+        self.available_w = min(surplus_w + battery_redirect_w, grid_headroom_w)
 
-        # Battery Priority (wie evcc prioritySoc/bufferSoc):
-        # Unter prioritySoc → Batterie hat Vorrang, weniger für Loadpoints
+        # Batterie-Vorrang unter priority_soc:
+        # Unter prioritySoc → Batterie hat Vorrang, nichts fuer Loadpoints
         if self.priority_soc > 0 and self.battery_soc < self.priority_soc:
             self.available_w = min(self.available_w, 0)
             log.debug("Battery priority: SoC %.0f%% < %.0f%% — Loadpoints gedrosselt",
                       self.battery_soc, self.priority_soc)
 
-        log.debug("Available: surplus=%.0fW grid_headroom=%.0fW lp_power=%.0fW → available=%.0fW",
-                  surplus_w, grid_headroom_w, current_lp_power, self.available_w)
+        log.debug("Available: surplus=%.0fW bat_redirect=%.0fW grid_headroom=%.0fW lp_power=%.0fW → available=%.0fW",
+                  surplus_w, battery_redirect_w, grid_headroom_w, current_lp_power, self.available_w)
 
         # 3. Circuit-Lasten zurücksetzen
         self.circuits.reset_all()
