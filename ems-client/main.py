@@ -135,6 +135,9 @@ def build_site(cfg: ConfigManager) -> Site:
         meter_drv = drivers.get(meter_id) if meter_id else None
         if charger:
             lp = Loadpoint(lp_cfg, charger, meter_drv)
+            # DB-Handle fuer Session-Persistenz (ueberlebt Service-Restart) +
+            # Event-Logs (Plug-in/out, SoC-Stop) im UI.
+            lp._db = db
             s.loadpoints.append(lp)
             log.info("Loadpoint erstellt: %s (charger=%s)", lp.name, charger_id)
         else:
@@ -161,7 +164,11 @@ def build_site(cfg: ConfigManager) -> Site:
                         if lp.id == lp_id or lp.name == lp_id:
                             lp._vehicle_driver = rv
                             lp._vehicle_battery_kwh = vc.get("battery_kwh", 0)
-                            log.info("Fahrzeug %s → LP %s (%.0f kWh)", rv.name, lp.name, lp._vehicle_battery_kwh)
+                            # Renault Zoe verliert bei CP-Toggle die Session →
+                            # Zombie-Wake-Up fuer Renault deaktivieren.
+                            lp.zombie_wakeup_enabled = False
+                            log.info("Fahrzeug %s → LP %s (%.0f kWh) — Zombie-Wake-Up deaktiviert (Renault)",
+                                     rv.name, lp.name, lp._vehicle_battery_kwh)
                             if db:
                                 db.publish_log("info", f"Fahrzeug {rv.name} -> Loadpoint {lp.name}")
                 log.info("Renault-Fahrzeug geladen: %s", rv.name)

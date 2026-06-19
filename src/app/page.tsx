@@ -90,7 +90,7 @@ export default function Dashboard() {
       es.onerror = () => {
         es?.close();
         setConnected(false);
-        retryTimeout = setTimeout(connect, 5000);
+        retryTimeout = setTimeout(connect, 1000);
       };
     }
 

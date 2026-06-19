@@ -63,6 +63,7 @@ class Site:
         self.battery_soc: float = 0
         self.consumption_w: float = 0
         self.available_w: float = 0
+        self.pv_surplus_w: float = 0
 
     def update(self) -> dict:
         """Hauptregelzyklus — alle 30 Sekunden aufrufen.
@@ -185,6 +186,14 @@ class Site:
         log.debug("Available: surplus=%.0fW bat_redirect=%.0fW grid_headroom=%.0fW lp_power=%.0fW → available=%.0fW",
                   surplus_w, battery_redirect_w, grid_headroom_w, current_lp_power, self.available_w)
 
+        # Echter PV-Surplus (ohne Batterie als Quelle):
+        # PV-Leistung minus Hausgrundlast (= consumption_w ohne LPs).
+        # Wird im min_pv-Modus benutzt, damit der LP NICHT die Batterie
+        # leerzieht, wenn nicht genug PV da ist. available_w (oben) bleibt
+        # unveraendert — pv-only-Mode mit Hysterese nutzt diese Formel weiterhin.
+        house_base_w = max(0, self.consumption_w - current_lp_power)
+        self.pv_surplus_w = max(0, self.pv_power_w - house_base_w - self.buffer_w)
+
         # 3. Circuit-Lasten zurücksetzen
         self.circuits.reset_all()
 
@@ -210,7 +219,9 @@ class Site:
 
             # Loadpoint bekommt das Minimum aus verfügbar + Boost + Circuit-Limit
             lp_available_w = min(remaining_w + lp_boost_w, circuit_max_w)
-            used_w = lp.update(lp_available_w, self.grid_power_w)
+            # PV-Surplus (echter, ohne Batterie) auch auf circuit_max_w + Boost begrenzen
+            lp_pv_surplus_w = min(self.pv_surplus_w + lp_boost_w, circuit_max_w)
+            used_w = lp.update(lp_available_w, self.grid_power_w, pv_surplus_w=lp_pv_surplus_w)
             remaining_w -= used_w
 
             # Circuit-Last aktualisieren
@@ -262,6 +273,7 @@ class Site:
             "battery_soc": round(self.battery_soc, 1),
             "consumption_w": round(self.consumption_w),
             "available_w": round(self.available_w),
+            "pv_surplus_w": round(self.pv_surplus_w),
             "loadpoints": [lp.state() for lp in self.loadpoints],
         }
 

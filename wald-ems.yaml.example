@@ -7,7 +7,10 @@ site:
   name: "Mein Zuhause"
   grid_limit_kw: 11          # Netzanschlussleistung in kW
   buffer_w: 100              # Sicherheitspuffer in Watt
-  priority_soc: 0            # Batterie-Prioritaets-SoC (0 = aus)
+  priority_soc: 20           # Batterie-Vorrang bis SoC% (0 = aus). 20 schuetzt
+                             # die Hausbatterie davor, waehrend Wolken-Puffer
+                             # leergezogen zu werden. battery_redirect (Auto-vor-
+                             # Batterie) greift erst ab diesem SoC.
   grid_price_eur_kwh: 0.27   # Strombezugspreis
   feedin_price_eur_kwh: 0.065 # Einspeiseverguetung
 
@@ -32,16 +35,27 @@ loadpoints:
   - name: "Garage"
     charger: "Wallbox"       # Referenz auf charger.name
     mode: pv                 # off | now | pv | min_pv
-    min_current: 6           # Ampere
+    min_current: 9           # Ampere. Renault Zoe: MIND. 9A — unter ~8.5A faellt
+                             # der Power Factor in den Keller (Zombie-Mode).
     max_current: 16          # Ampere
-    phases: 1
+    phases: 3                # Zoe: IMMER 3-phasig, NIE umschalten (killt Session)
+    target_soc: 90           # Laden bis hier (braucht Vehicle mit battery_kwh)
+    min_soc: 20              # Erzwingt Laden unter diesem SoC
+    # session_limit_factor: 0.95  # Safety-Cap: max 95% der battery_kwh pro Session
+    #                              # (greift falls SoC-Estimation/Cloud-API ausfaellt)
+    # zombie_wakeup_enabled: false # CP-Toggle nach Stillstand. Bei Renault AUTOMATISCH
+    #                              # aus (Zoe verliert sonst Session). Nur fuer
+    #                              # andere EVs sinnvoll.
 
 # ── Fahrzeuge (optional) ──
+# Mit Vehicle-Eintrag: SoC-basiertes Laden bis target_soc + Session-Estimation
+# (robust gegen Renault-Cloud-Lag). Ohne: reines PV-Ueberschuss-Laden.
 vehicles: []
   # - name: "Renault Zoe"
   #   manufacturer: renault
+  #   loadpoint: "Garage"      # muss zum loadpoint.name passen
   #   vin: "VF1..."
-  #   battery_kwh: 52
+  #   battery_kwh: 40          # Zoe R110/R135: 40 kWh (noetig fuer SoC-Estimation)
   #   credentials:
   #     email: "user@example.com"
   #     password: "secret"

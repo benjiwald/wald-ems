@@ -37,15 +37,6 @@ export async function GET(): Promise<Response> {
       }, 2000);
 
       send(": connected\n\n");
-
-      // Close after 5 minutes (client should reconnect)
-      setTimeout(() => {
-        clearInterval(interval);
-        if (!closed) {
-          closed = true;
-          try { controller.close(); } catch { /* already closed */ }
-        }
-      }, 5 * 60 * 1000);
     },
     cancel() {
       closed = true;

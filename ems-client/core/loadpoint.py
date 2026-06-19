@@ -7,8 +7,8 @@ Modi:
 - MIN_PV: Mindestladung (6A) + PV-Überschuss obendrauf
 
 Regelung orientiert sich an evcc:
-- Enable Delay: 60s (Überschuss muss 60s anstehen)
-- Disable Delay: 180s (3 Min Wolken-Toleranz)
+- Enable Delay: 20s (Überschuss muss 20s anstehen)
+- Disable Delay: 300s (5 Min Wolken-Toleranz)
 - Session Tracking: Status-basiert (A=getrennt beendet Session)
 - Charger Grace Period: 60s nach Enable/Disable
 - Phasen-Erkennung: > 1.0A Schwelle
@@ -59,7 +59,6 @@ class ChargingSession:
         dt_h = (now - self._last_update) / 3600
         energy_increment = self._last_power_w * dt_h
         self.energy_wh += energy_increment
-        # Aufteilung Solar/Netz nach letztem solar_share (repraesentativ fuer Intervall)
         share = max(0.0, min(1.0, self._last_solar_share))
         self.solar_wh += energy_increment * share
         self.grid_wh += energy_increment * (1.0 - share)
@@ -119,6 +118,11 @@ class Loadpoint:
         self.mode = config.get("mode", "off")
         self.min_current = float(config.get("min_current", MIN_CURRENT))
         self.max_current = float(config.get("max_current", DEFAULT_MAX_CURRENT))
+        # Zombie-Wake-Up: CP-Signal-Toggle wenn Status B + 0W.
+        # Standardmaessig AN — hilft bei den meisten EVs aus dem Schlaf.
+        # ACHTUNG: Renault Zoe verliert dadurch die Session — bei Zoe abschalten.
+        # Wird in main.build_site fuer Renault automatisch auf False gesetzt.
+        self.zombie_wakeup_enabled = bool(config.get("zombie_wakeup_enabled", True))
         self.phases = int(config.get("phases", 3))
         self.priority = int(config.get("priority", 0))
         self.circuit_id = config.get("circuit_id")
@@ -127,15 +131,20 @@ class Loadpoint:
         self.target_soc = float(config.get("target_soc", 80))
         self.min_soc = float(config.get("min_soc", 20))
         self.battery_boost = bool(config.get("battery_boost", False))
+        # Hard-Cap auf maximale Session-Energie als Safety-Net wenn die
+        # SoC-Estimation kaputt ist (Renault Cloud-Lag o.ae.). Default 95%
+        # der konfigurierten Batterie-Kapazitaet — bei 40 kWh-Akku also
+        # 38 kWh Ladegrenze. Kann via 'session_limit_factor' ueberschrieben werden.
+        self.session_limit_factor = float(config.get("session_limit_factor", 0.95))
 
         # Hysterese (evcc-Defaults)
         # Asymmetrische Hysterese — responsiv + Wolken-tolerant:
         # Enable: 4000W fuer 20s (reagiert schnell auf Sonne, evcc-aehnlich)
         # Disable: 0W fuer 300s (5 Min, toleriert Wolken, laedt durch mit min_current)
         self.enable_threshold_w = float(config.get("enable_threshold_w", 4000))
-        self.enable_delay_s = int(config.get("enable_delay_s", 20))       # schnelle Reaktion
-        self.disable_threshold_w = float(config.get("disable_threshold_w", 0))  # evcc-Default
-        self.disable_delay_s = int(config.get("disable_delay_s", 300))    # 5 Min Wolkenpuffer
+        self.enable_delay_s = int(config.get("enable_delay_s", 20))
+        self.disable_threshold_w = float(config.get("disable_threshold_w", 0))
+        self.disable_delay_s = int(config.get("disable_delay_s", 300))
 
         self.charger = charger
         self.meter = meter
@@ -146,7 +155,7 @@ class Loadpoint:
         self._charging_power_w = 0.0
         self._target_current_a = 0.0
         self._enabled = False
-        self._last_solar_share: float = 1.0  # Anteil aus PV/Batterie
+        self._last_solar_share: float = 1.0
 
         # Hysterese Timer
         self._enable_timer: float | None = None
@@ -155,7 +164,7 @@ class Loadpoint:
         # Charger Grace Period (evcc: 60s nach Enable/Disable)
         self._charger_switch_time: float = 0
 
-        # Write-on-change + periodisches Nachschreiben
+        # Write-on-change
         self._last_written_current: float = -1
         self._last_written_enabled: bool | None = None
         self._ever_enabled: bool = False
@@ -175,21 +184,238 @@ class Loadpoint:
         # Tariff Reference (wird von Site gesetzt)
         self.tariff = None
 
-        # Vehicle Reference (wird von Site gesetzt)
-        self.vehicle_soc: float | None = None
+        # Vehicle SoC Tracking (Session-basiert, evcc-style)
+        # ---------------------------------------------------------------
+        # Problem mit "Reset-on-API-Update": Wenn die Cloud-API immer
+        # *hinter* der Realitaet ist (Renault MyR ist beruechtigt traege),
+        # resetten wir den Estimation-Counter bei jedem frischen Wert auf 0
+        # und fangen wieder bei Cloud-SoC an zu addieren — wir holen den Lag
+        # also NIE auf, weil Cloud-SoC <= Realitaet bleibt.
+        #
+        # Loesung: Beim Plug-in (A→B) snapshoten wir die SoC als Baseline.
+        # Die Wallbox-Energie wird ueber die GESAMTE Session aufaddiert
+        # (monotonisch, ohne Reset bei API-Updates). Estimated berechnet:
+        #
+        #   estimated = max(api_soc, session_start_soc + delivered/battery*100)
+        #
+        # → Wenn die Cloud hinterher ist, gewinnt der Wallbox-Term.
+        # → Wenn die Cloud mal voraus ist, gewinnt der Cloud-Wert.
+        # → Estimated nimmt nie ab solange die Session laeuft.
+        self._vehicle_soc_api: float | None = None
+        self._vehicle_soc_api_ts: float = 0.0
+        self._vehicle_battery_kwh: float = 0.0
+        self._session_start_soc: float | None = None
+        self._session_delivered_wh: float = 0.0
+        self._last_estimation_ts: float = 0.0
+        self._estimation_initialized: bool = False
+        # DB-Persistenz: alle 30s in state-Tabelle (ueberlebt Service-Restart)
+        self._last_persist_ts: float = 0.0
+        # Plug-out-Hysterese: Status A muss seit > 60s konstant kommen,
+        # sonst ignorieren (Modbus-Glitches zerstoeren nicht die Session).
+        self._status_a_first_seen: float | None = None
+        self._prev_status_effective: str = "A"
 
-    def update(self, available_w: float, grid_import_w: float = 0) -> float:
+        # DB-Handle (optional, vom main.py gesetzt) — fuer Events + Session-Persistenz
+        self._db = None
+
+    # ── Vehicle SoC (Session-basierte Estimation) ────────────────────────
+    def set_vehicle_soc_api(self, soc: float | None) -> None:
+        """Setzt einen frischen SoC-Wert von der Cloud-API.
+
+        Der Estimation-Counter wird NICHT resettet — die Wallbox-Energie
+        laeuft monoton ueber die ganze Session. Wir merken uns nur den neuen
+        API-Wert als untere Schranke fuer die Estimation.
+
+        WICHTIG (Lazy-Init): wenn die Session schon laeuft (_session_start_soc
+        ist None weil API beim Plug-in noch nichts geliefert hatte), holen wir
+        das jetzt nach. Wir rekonstruieren den Start aus aktueller API minus
+        der schon gelaufenen Wallbox-Energie.
+        """
+        # SANITY-FILTER — implausible Werte ignorieren.
+        # Hintergrund: die Renault Kamereon API liefert gelegentlich 0% wenn
+        # das Auto schlaeft oder bei Auth-Aussetzern.
+        if soc is None:
+            return
+        try:
+            soc_f = float(soc)
+        except (TypeError, ValueError):
+            return
+        if not (1.0 <= soc_f <= 100.0):
+            log.warning("LP %s: API lieferte implausible vehicle_soc=%.1f%% — ignoriert",
+                        self.name, soc_f)
+            return
+        # Plausible Drops > 30% vom letzten Wert sind verdaechtig (API-Aussetzer)
+        prev = self._vehicle_soc_api
+        if prev is not None and (prev - soc_f) > 30:
+            api_age = time.time() - self._vehicle_soc_api_ts
+            if api_age < 1800:
+                log.warning("LP %s: API SoC-Drop %.0f%% → %.0f%% verdaechtig (Alter %.0fs) — ignoriert",
+                            self.name, prev, soc_f, api_age)
+                return
+
+        self._vehicle_soc_api = soc_f
+        self._vehicle_soc_api_ts = time.time()
+        # Lazy-Init: Session laeuft aber Start fehlt → ableiten
+        if (self._session_start_soc is None
+                and self._prev_status in ("B", "C")
+                and self._vehicle_battery_kwh > 0):
+            delta_pct = (self._session_delivered_wh / 1000.0) \
+                        / self._vehicle_battery_kwh * 100.0
+            self._session_start_soc = max(0.0, soc_f - delta_pct)
+            log.info("LP %s: Session-Start lazy-init = %.1f%% (API %.0f%% − %.1f kWh schon geladen)",
+                     self.name, self._session_start_soc, soc_f,
+                     self._session_delivered_wh / 1000.0)
+            if self._db is not None:
+                try:
+                    self._db.publish_log("info",
+                        f"LP {self.name}: Session-Start lazy-init = {self._session_start_soc:.1f}% "
+                        f"(API {soc_f:.0f}% nachgereicht, {self._session_delivered_wh/1000.0:.1f} kWh bereits geladen)")
+                except Exception:
+                    pass
+
+    @property
+    def vehicle_soc(self) -> float | None:
+        """Estimated SoC — robust gegen Cloud-Lag.
+
+        Reihenfolge:
+        1. Wenn session_start + battery_kwh bekannt:
+             max(api, session_start + delivered/battery*100)
+        2. Wenn nur api da (Session-Start fehlt aber Energie geflossen):
+             api + delivered/battery*100  (konservativer Fallback)
+        3. Sonst api.
+        """
+        api = self._vehicle_soc_api
+        if api is None:
+            return None
+        if self._vehicle_battery_kwh and self._vehicle_battery_kwh > 0:
+            delta_pct = (self._session_delivered_wh / 1000.0) \
+                        / self._vehicle_battery_kwh * 100.0
+            if self._session_start_soc is not None:
+                estimated_from_session = self._session_start_soc + delta_pct
+                return max(0.0, min(100.0, max(api, estimated_from_session)))
+            elif delta_pct > 0.5:
+                return max(0.0, min(100.0, api + delta_pct))
+        return max(0.0, min(100.0, api))
+
+    @vehicle_soc.setter
+    def vehicle_soc(self, value: float | None) -> None:
+        """Backwards-kompatibel: direkt-Setzen verhaelt sich wie API-Setter."""
+        self.set_vehicle_soc_api(value)
+
+    # ── Session-Persistenz (ueberlebt Service-Restart) ───────────────────
+    def _session_state_key(self) -> str:
+        return f"loadpoint_{self.id}_session"
+
+    def _persist_session_state(self) -> None:
+        if self._db is None:
+            return
+        try:
+            self._db.set_state(self._session_state_key(), {
+                "start_soc": self._session_start_soc,
+                "delivered_wh": self._session_delivered_wh,
+                "ts": time.time(),
+            })
+        except Exception as e:
+            log.debug("LP %s: _persist_session_state Fehler: %s", self.name, e)
+
+    def _restore_session_state(self) -> bool:
+        """Versucht Session-State aus DB zu laden. Returns True wenn erfolgreich."""
+        if self._db is None:
+            return False
+        try:
+            data = self._db.get_state(self._session_state_key())
+            if not isinstance(data, dict):
+                return False
+            ts = data.get("ts", 0)
+            if time.time() - ts > 7200:
+                return False
+            start_soc = data.get("start_soc")
+            delivered_wh = float(data.get("delivered_wh", 0))
+            if start_soc is not None and start_soc < 1.0:
+                log.warning("LP %s: DB-Session-State hat invaliden start_soc=%.1f%% — verworfen",
+                            self.name, start_soc)
+                return False
+            self._session_start_soc = start_soc
+            self._session_delivered_wh = delivered_wh
+            return True
+        except Exception as e:
+            log.debug("LP %s: _restore_session_state Fehler: %s", self.name, e)
+            return False
+
+    def _clear_session_state(self) -> None:
+        if self._db is None:
+            return
+        try:
+            self._db.set_state(self._session_state_key(), None)
+        except Exception:
+            pass
+
+    def force_reset_session_estimation(self) -> dict:
+        """Reset des SoC-Estimation-States. Behaelt Cloud-API-Wert."""
+        before = self.diagnostic_soc_state()
+        self._session_start_soc = None
+        self._session_delivered_wh = 0.0
+        self._estimation_initialized = False
+        self._clear_session_state()
+        log.info("LP %s: SoC-Estimation force-reset (war: %s)", self.name, before)
+        return before
+
+    def diagnostic_soc_state(self) -> dict:
+        """Aktuelle SoC-Estimation Variablen fuer Debugging."""
+        if self._vehicle_battery_kwh > 0:
+            if self.vehicle_soc is None:
+                soc_diff = max(0, self.target_soc - 20.0)
+                cap = self._vehicle_battery_kwh * soc_diff / 100.0 / 0.88
+                cap_mode = "no_soc_conservative"
+            else:
+                cap = self._vehicle_battery_kwh * self.session_limit_factor
+                cap_mode = "normal"
+        else:
+            cap = None
+            cap_mode = "no_battery_kwh"
+        return {
+            "api_soc": self._vehicle_soc_api,
+            "api_age_s": (time.time() - self._vehicle_soc_api_ts) if self._vehicle_soc_api_ts else None,
+            "session_start_soc": self._session_start_soc,
+            "session_delivered_wh": round(self._session_delivered_wh, 1),
+            "session_delivered_kwh": round(self._session_delivered_wh / 1000.0, 2),
+            "battery_kwh": self._vehicle_battery_kwh,
+            "estimated_soc": self.vehicle_soc,
+            "target_soc": self.target_soc,
+            "session_limit_kwh": round(cap, 2) if cap is not None else None,
+            "session_limit_mode": cap_mode,
+            "status": self._status,
+            "prev_status": self._prev_status,
+            "estimation_initialized": self._estimation_initialized,
+            "enabled": self._last_written_enabled,
+            "charging_power_w": self._charging_power_w,
+        }
+
+    def update(self, available_w: float, grid_import_w: float = 0,
+               pv_surplus_w: float | None = None) -> float:
         """Regelzyklus: Liest Status, berechnet Strom, schreibt an Charger.
 
         Args:
-            available_w: Verfügbare Leistung (PV + Batterie - Haus - Puffer)
+            available_w: Gesamt verfuegbare Leistung (inkl. Batterie-Beitrag).
+                         Wird im PV-Modus mit Hysterese verwendet.
             grid_import_w: Netzbezug (positiv=Import, negativ=Export)
+            pv_surplus_w: Echter PV-Surplus = PV minus Hausgrundlast.
+                          Wird im min_pv-Modus benutzt, damit der LP NICHT
+                          die Batterie aggressiv leerzieht. Default: available_w.
 
         Returns:
             Tatsächlich genutzter Strom in Watt
         """
+        if pv_surplus_w is None:
+            pv_surplus_w = available_w
         # 1. Charger-Status lesen
         self._status = self.charger.status()
+
+        # Zombie-Schutz nach Restart: Wenn der Charger beim (Re)Start bereits
+        # geladen hat, _ever_enabled setzen — sonst greift der Disable-Pfad nie.
+        if self._status == "C" and not self._ever_enabled:
+            self._ever_enabled = True
+            log.info("LP %s: Charger beim Start bereits aktiv — _ever_enabled=True gesetzt", self.name)
 
         # 2. Aktuelle Ladeleistung messen
         if self._status == "A":
@@ -201,28 +427,115 @@ class Loadpoint:
         else:
             self._charging_power_w = 0
 
-        # Solar-Anteil berechnen: wenn Netz importiert, dann LP teils aus Netz
-        # grid_import_w > 0 = Netzbezug
-        # LP Solar-Share = max(0, 1 - grid_import / lp_power)
+        # SoC-Estimation auf Session-Basis (evcc-style):
+        # Beim Plug-in (A→B) snapshoten wir die SoC als Baseline. Wallbox-
+        # Energie wird monoton ueber die ganze Session aufaddiert.
+        now_ts = time.time()
+        if self._last_estimation_ts == 0:
+            self._last_estimation_ts = now_ts
+
+        # SERVICE-RESTART-DETECTION: wenn der allererste poll bereits Status
+        # B/C zeigt, ist das KEIN Plug-in — mitten in laufender Session neugestartet.
+        if not self._estimation_initialized:
+            self._estimation_initialized = True
+            if self._status in ("B", "C"):
+                restored = self._restore_session_state()
+                if restored:
+                    log.info("LP %s: Service-Restart waehrend laufender Session erkannt "
+                             "(Status %s) — Session-State aus DB wiederhergestellt: "
+                             "start_soc=%s, delivered=%.2f kWh",
+                             self.name, self._status,
+                             f"{self._session_start_soc:.0f}%" if self._session_start_soc is not None else "—",
+                             self._session_delivered_wh / 1000.0)
+                else:
+                    log.warning("LP %s: Service-Restart waehrend laufender Session (Status %s) "
+                                "— kein State in DB, lazy-init beim naechsten API-Update",
+                                self.name, self._status)
+                self._prev_status = self._status
+                self._prev_status_effective = self._status
+
+        # Plug-out-Hysterese: Status A muss seit > 60s konstant gemeldet werden,
+        # sonst ignorieren (Modbus-Glitch zerstoert nicht die Session).
+        PLUG_OUT_HYST_S = 60.0
+        if self._status == "A":
+            if self._status_a_first_seen is None:
+                self._status_a_first_seen = now_ts
+        else:
+            if self._status_a_first_seen is not None:
+                glitch_dur = now_ts - self._status_a_first_seen
+                if glitch_dur < PLUG_OUT_HYST_S:
+                    log.info("LP %s: Status-A-Glitch ignoriert (%.1fs) — Session bleibt",
+                             self.name, glitch_dur)
+            self._status_a_first_seen = None
+
+        confirmed_a = (self._status_a_first_seen is not None and
+                       (now_ts - self._status_a_first_seen) >= PLUG_OUT_HYST_S)
+        effective_status = "A" if confirmed_a else (self._status if self._status != "A" else self._prev_status_effective)
+
+        # A → B/C: Plug-in detektiert. Snapshot SoC als Session-Start.
+        if self._prev_status_effective == "A" and effective_status in ("B", "C"):
+            self._session_start_soc = self._vehicle_soc_api
+            self._session_delivered_wh = 0.0
+            log.info("LP %s: Plug-in detektiert (Status %s→%s) — Session-Start SoC = %s",
+                     self.name, self._prev_status_effective, effective_status,
+                     f"{self._session_start_soc:.0f}%" if self._session_start_soc is not None else "—")
+            if self._db is not None:
+                try:
+                    self._db.publish_log("info",
+                        f"LP {self.name}: Plug-in — Session-Start SoC = "
+                        f"{'%.0f%%' % self._session_start_soc if self._session_start_soc is not None else 'unbekannt'}")
+                except Exception:
+                    pass
+
+        # → A: Plug-out detektiert (nur confirmed). Session beenden + DB-State loeschen.
+        if self._prev_status_effective != "A" and effective_status == "A":
+            log.info("LP %s: Plug-out detektiert (confirmed nach %.0fs) — Session-Energy %.2f kWh",
+                     self.name, PLUG_OUT_HYST_S, self._session_delivered_wh / 1000.0)
+            self._session_start_soc = None
+            self._session_delivered_wh = 0.0
+            self._clear_session_state()
+
+        # Wallbox-Energie zur Session aufaddieren — monoton, nie reset waehrend Session
+        dt = now_ts - self._last_estimation_ts
+        if 0 < dt < 600 and self._charging_power_w > 50 and self._status in ("B", "C"):
+            self._session_delivered_wh += self._charging_power_w * (dt / 3600.0)
+        self._last_estimation_ts = now_ts
+        self._prev_status = self._status
+        self._prev_status_effective = effective_status
+
+        # Session-State alle 30s in DB persistieren (ueberlebt Restart)
+        if self._status in ("B", "C") and (now_ts - self._last_persist_ts) > 30:
+            self._persist_session_state()
+            self._last_persist_ts = now_ts
+
+        # Solar-Anteil berechnen
         if self._charging_power_w > 50 and grid_import_w > 0:
             grid_share = min(1.0, grid_import_w / self._charging_power_w)
             self._last_solar_share = max(0.0, 1.0 - grid_share)
         else:
-            self._last_solar_share = 1.0  # PV-Überschuss / Netzeinspeisung → 100% Solar
+            self._last_solar_share = 1.0
 
         # 3. Session aktualisieren (Status-basiert wie evcc)
         self._update_session()
 
         # 3a. Zombie-Wake-Up (evcc-Style):
-        # Wenn enabled+verbunden (B) seit >5 min und kein Strom fliesst,
-        # Zoe/Fahrzeug ist wahrscheinlich eingeschlafen. Pause-Register
-        # togglen (1s aus, dann wieder an) triggert neuen CP-Signal-Wechsel.
-        now = time.time()
-        if (self._last_written_enabled and self._status == "B"
+        # Wenn enabled+verbunden (B) seit zu langer Zeit und kein Strom fliesst,
+        # Fahrzeug ist wahrscheinlich eingeschlafen. CP-Signal togglen.
+        #
+        # ACHTUNG: Renault Zoe verliert dadurch die Session — zombie_wakeup_enabled
+        # wird in main.py fuer Renault automatisch auf False gesetzt.
+        #
+        # Timeout ist Modus-abhaengig:
+        #   now:    60s  — Sofort soll sofort laden, kurze Reaktion
+        #   pv/min_pv: 300s — PV wartet auf Sonne, laengere Toleranz
+        now = now_ts
+        zombie_timeout = 60 if self.mode == "now" else 300
+        if (self.zombie_wakeup_enabled
+                and self._last_written_enabled and self._status == "B"
                 and self._charging_power_w < 50 and self._ever_enabled):
             if self._zombie_since is None:
                 self._zombie_since = now
-            elif (now - self._zombie_since > 300  # 5 min Zombie
+            elif (now - self._zombie_since > zombie_timeout
                   and now - self._last_wake_up > 600):  # max alle 10 min
                 log.warning("LP %s: Zombie erkannt (Status B ohne Strom seit %.0fs) — Wake-Up-Toggle",
                             self.name, now - self._zombie_since)
@@ -230,13 +543,12 @@ class Loadpoint:
                     self.charger.enable(False)
                     time.sleep(1.0)
                     self.charger.enable(True)
-                    # _last_written_enabled bleibt True (Ziel-Status)
                     self._last_wake_up = now
                     self._zombie_since = None
                 except Exception as e:
                     log.error("LP %s: Wake-Up fehlgeschlagen: %s", self.name, e)
         else:
-            self._zombie_since = None  # Zoe zieht Strom → reset
+            self._zombie_since = None
 
         # Kein Fahrzeug verbunden → nichts zu tun
         if self._status == "A":
@@ -246,13 +558,53 @@ class Loadpoint:
             self._disable_timer = None
             return 0
 
-        # 4. Target SoC prüfen
-        if self.vehicle_soc is not None and self.vehicle_soc > 0 and self.vehicle_soc >= self.target_soc:
-            if self.mode in ("pv", "min_pv", "now"):
-                log.info("LP %s: Target SoC %.0f%% erreicht (aktuell %.0f%%) — Laden gestoppt",
-                         self.name, self.target_soc, self.vehicle_soc)
-                self._set_charging(False, 0)
-                return 0
+        # 4. STOP-Bedingungen — zwei unabhaengige Mechanismen wie evcc:
+        #    (a) SoC-Stop: estimated >= target_soc
+        #    (b) kWh-Safety-Cap: delivered > battery_kwh * session_limit_factor
+        #        (Backup wenn SoC-Estimation kaputt ist)
+        est_soc = self.vehicle_soc
+        api_soc = self._vehicle_soc_api
+        start_soc = self._session_start_soc
+        delivered_kwh = self._session_delivered_wh / 1000.0
+
+        soc_stop = (est_soc is not None and est_soc > 0
+                    and est_soc >= self.target_soc
+                    and self.mode in ("pv", "min_pv", "now"))
+
+        if self._vehicle_battery_kwh > 0:
+            if est_soc is None:
+                # KEINE SoC-Daten: konservativ Annahme Start bei 20% SoC
+                start_assumed = 20.0
+                soc_diff = max(0, self.target_soc - start_assumed)
+                kwh_cap = self._vehicle_battery_kwh * soc_diff / 100.0 / 0.88
+            else:
+                kwh_cap = self._vehicle_battery_kwh * self.session_limit_factor
+        else:
+            kwh_cap = None
+
+        energy_stop = (kwh_cap is not None and delivered_kwh >= kwh_cap
+                       and self.mode in ("pv", "min_pv", "now"))
+
+        if soc_stop or energy_stop:
+            first_stop = self._last_written_enabled is True
+            reason = "Target SoC erreicht" if soc_stop else "Session-Energy-Cap erreicht (Safety-Net)"
+            msg = (f"LP {self.name}: {reason} — gestoppt. "
+                   f"estimated={est_soc if est_soc is not None else -1:.1f}%, "
+                   f"API={api_soc if api_soc is not None else -1:.0f}%, "
+                   f"target={self.target_soc:.0f}%, "
+                   f"Session-Start={start_soc if start_soc is not None else -1:.0f}%, "
+                   f"delivered={delivered_kwh:.1f} kWh"
+                   f"{f' (Cap {kwh_cap:.1f} kWh)' if energy_stop else ''}")
+            log.info(msg)
+            if self._db is not None and (first_stop
+                                          or (time.time() - getattr(self, '_last_stop_log_ts', 0)) > 3600):
+                try:
+                    self._db.publish_log("warning" if energy_stop else "info", msg)
+                    self._last_stop_log_ts = time.time()
+                except Exception as e:
+                    log.debug("publish_log fehlgeschlagen: %s", e)
+            self._set_charging(False, 0)
+            return 0
 
         # 5. Min SoC prüfen — erzwingt Laden wenn unter Minimum
         force_charge = False
@@ -262,7 +614,7 @@ class Loadpoint:
                      self.name, self.min_soc, self.vehicle_soc)
 
         # 6. Zielstrom berechnen basierend auf Modus
-        target_a = self._calculate_target(available_w, force_charge)
+        target_a = self._calculate_target(available_w, force_charge, pv_surplus_w)
 
         # 7. Hysterese im PV-Modus
         if self.mode == "pv":
@@ -298,7 +650,8 @@ class Loadpoint:
         )
         return used_w
 
-    def _calculate_target(self, available_w: float, force_charge: bool) -> float:
+    def _calculate_target(self, available_w: float, force_charge: bool,
+                          pv_surplus_w: float | None = None) -> float:
         if self.mode == "off" and not force_charge:
             return 0
 
@@ -313,13 +666,15 @@ class Loadpoint:
                     return 0
             return self.max_current
 
-        available_a = available_w / (VOLTAGE * self.phases)
-
         if self.mode == "pv":
-            return available_a
+            return available_w / (VOLTAGE * self.phases)
 
         if self.mode == "min_pv":
-            return max(self.min_current, available_a)
+            # Min+PV: min_current als Untergrenze, max_current wenn echter PV-Surplus.
+            # WICHTIG: pv_surplus_w (= PV minus Hausgrundlast) statt available_w,
+            # damit nicht aggressiv die Batterie entladen wird wenn PV niedrig ist.
+            surplus_w = pv_surplus_w if pv_surplus_w is not None else available_w
+            return max(self.min_current, surplus_w / (VOLTAGE * self.phases))
 
         return 0
 
@@ -328,7 +683,6 @@ class Loadpoint:
         now = time.time()
 
         if not self._enabled:
-            # Noch nicht aktiv → Enable-Threshold prüfen
             if available_w >= self.enable_threshold_w:
                 if self._enable_timer is None:
                     self._enable_timer = now
@@ -344,8 +698,6 @@ class Loadpoint:
                 self._enable_timer = None
                 return 0  # Unter Threshold
         else:
-            # Bereits aktiv → Disable nur bei echtem Netzbezug (evcc-Style)
-            # Bei kurzen Wolken weiterladen mit min_current statt abzubrechen
             if available_w < self.disable_threshold_w:
                 if self._disable_timer is None:
                     self._disable_timer = now
@@ -356,53 +708,77 @@ class Loadpoint:
                              self.name, available_w, self.disable_threshold_w, self.disable_delay_s)
                     self._disable_timer = None
                     return 0  # Disable!
-                # Timer laeuft: weiterladen mit min_current (aus Netz/Batterie)
                 return max(target_a, self.min_current)
-                return self.min_current  # Noch halten mit Minimum
             else:
                 self._disable_timer = None
 
         return target_a
 
     def _set_charging(self, enable: bool, target_a: float):
-        """Setzt Charger-Status — Read-before-write fuer Watchdog-Recovery.
+        """Setzt Charger-Status — symmetrischer Watchdog + NRG-Kick-Heartbeat.
 
-        Jeden Zyklus pruefen wir ob der Charger WIRKLICH enabled ist.
-        Wenn er sich selbst gepaust hat (Watchdog, interne Logik),
-        setzen wir das Pause-Register zurueck. Kein blindes Ueberschreiben.
+        SYMMETRISCHER WATCHDOG: in JEDEM Zyklus pruefen ob der Charger WIRKLICH
+        dem Ziel-Zustand entspricht. Wenn der Real-Zustand abweicht (egal in
+        welche Richtung), erneut schreiben. Behandelt sowohl unerwartetes
+        Self-Enable als auch unerwartetes Self-Pause.
+
+        NRG KICK HEARTBEAT (Sofort-Modus): NRG Kick Gen2 hat einen internen
+        Session-Watchdog (~5 Min) der sich NUR durch Schreiben von Register 195
+        (Pause) resettet — NICHT allein durch Register 194 (Strom). Im Sofort-
+        Modus wird Reg 195 daher jeden Zyklus (10s) explizit geschrieben.
 
         Strom-Setpoint (Register 194) wird jeden Zyklus geschrieben (wie evcc).
         """
-        # Echten Charger-Status lesen — fangen Watchdog-Auto-Pause ab
         try:
             actually_enabled = self.charger.enabled()
         except Exception:
             actually_enabled = None
 
-        need_enable_write = (
-            enable != self._last_written_enabled
-            or (enable and actually_enabled is False)
-        )
+        # Symmetrisch: schreibe wenn (a) erstmaliger Wechsel ODER
+        # (b) Real-Zustand weicht in irgendeine Richtung vom Soll ab.
+        mismatch = (actually_enabled is not None and actually_enabled != enable)
+        need_enable_write = (enable != self._last_written_enabled) or mismatch
 
         if need_enable_write:
-            if enable and actually_enabled is False and self._last_written_enabled:
-                log.warning("LP %s: Charger selbst-gepaust (Watchdog?) — re-enable", self.name)
+            if mismatch and self._last_written_enabled == enable:
+                msg = (f"LP {self.name}: Charger-Status weicht vom Soll ab "
+                       f"(Soll={'an' if enable else 'AUS'}, "
+                       f"Ist={'an' if actually_enabled else 'AUS'}) — re-write")
+                log.warning(msg)
+                if self._db is not None:
+                    try:
+                        self._db.publish_log("warning", msg)
+                    except Exception:
+                        pass
             self.charger.enable(enable)
             self._last_written_enabled = enable
             self._enabled = enable
             self._charger_switch_time = time.time()
 
-        # Strom-Setpoint in JEDEM Zyklus schreiben (wie evcc) — Register 194
+        # Strom-Setpoint in JEDEM Zyklus schreiben (wie evcc).
         if enable and target_a >= self.min_current:
             self.charger.max_current(target_a)
             self._last_written_current = target_a
+        elif not enable:
+            try:
+                self.charger.max_current(self.min_current)
+            except Exception:
+                pass
+
+        # Sofort-Modus Heartbeat: Reg 195 jeden Zyklus schreiben wenn kein Mismatch.
+        # Verhindert den NRG Kick Gen2 Watchdog-Timeout.
+        if enable and self.mode == "now" and not need_enable_write:
+            try:
+                self.charger.enable(True)
+                log.debug("LP %s: Sofort-Heartbeat — Pause-Register refreshed", self.name)
+            except Exception as e:
+                log.debug("LP %s: Heartbeat fehlgeschlagen: %s", self.name, e)
 
         self._target_current_a = target_a
         self._enabled = enable
 
     def _detect_active_phases(self) -> int:
         """Erkennt aktive Phasen (evcc: > 1.0A Schwelle)."""
-        # Grace Period nach Enable/Disable — Messwerte noch nicht stabil
         if time.time() - self._charger_switch_time < CHARGER_SWITCH_DURATION:
             return self.phases
         try:
@@ -416,12 +792,7 @@ class Loadpoint:
             return self.phases
 
     def _update_session(self):
-        """Session Tracking — Status-basiert wie evcc.
-
-        Session startet wenn Fahrzeug lädt (Status B/C mit Leistung).
-        Session endet NUR wenn Fahrzeug abgesteckt wird (Status A).
-        Kurze Leistungseinbrüche (Modbus-Glitches) beenden NICHT die Session.
-        """
+        """Session Tracking — Status-basiert wie evcc."""
         if self._status in ("B", "C") and self._charging_power_w > 50:
             if self._session is None:
                 self._session = ChargingSession(self.id, self.mode, self.phases)
@@ -431,7 +802,6 @@ class Loadpoint:
             else:
                 self._session.update(self._charging_power_w, self._last_solar_share)
 
-        # Session beenden NUR bei Disconnect (Status A)
         if self._status == "A" and self._session is not None:
             if self.vehicle_soc is not None:
                 self._session.vehicle_soc_end = self.vehicle_soc
@@ -453,12 +823,9 @@ class Loadpoint:
         self.mode = mode
         self._last_written_enabled = None
         self._last_written_current = -1
-        # Timer zurücksetzen bei Moduswechsel
         self._enable_timer = None
         self._disable_timer = None
         if mode in ("off", "pv"):
-            # OFF: sofort pausieren
-            # PV: sofort pausieren → Enable-Logik entscheidet ob gestartet wird
             self.charger.enable(False)
             self._enabled = False
             self._last_written_enabled = False
@@ -486,7 +853,6 @@ class Loadpoint:
         return sessions
 
     def state(self) -> dict:
-        # Live-Phasenströme lesen wenn Charger es unterstützt
         currents = None
         voltages = None
         apparent_va = None
@@ -499,13 +865,12 @@ class Loadpoint:
                 active_phases = sum(1 for i in (l1, l2, l3) if i > 0.5)
                 if active_phases == 0:
                     active_phases = self.phases
-                # Spannungen lesen (NRG Kick hat Register 217-219)
                 if hasattr(self.charger, '_read_reg'):
                     try:
                         u1 = self.charger._read_reg("voltage_l1") or 0
                         u2 = self.charger._read_reg("voltage_l2") or 0
                         u3 = self.charger._read_reg("voltage_l3") or 0
-                        if u1 > 100:  # plausible
+                        if u1 > 100:
                             voltages = [round(u1, 1), round(u2, 1), round(u3, 1)]
                             apparent_va = round(u1 * l1 + u2 * l2 + u3 * l3)
                             if apparent_va > 0 and self._charging_power_w > 0:
@@ -522,20 +887,22 @@ class Loadpoint:
             "status": self._status,
             "charging_power_w": round(self._charging_power_w),
             "target_current_a": round(self._target_current_a, 1),
-            "phases": self.phases,               # Config
-            "active_phases": active_phases,      # Live gemessen
-            "currents": currents,                # [L1, L2, L3] in Ampere
-            "voltages": voltages,                # [L1, L2, L3] in Volt
-            "apparent_va": apparent_va,          # Scheinleistung VA
-            "power_factor": power_factor,        # cos phi
+            "phases": self.phases,
+            "active_phases": active_phases,
+            "currents": currents,
+            "voltages": voltages,
+            "apparent_va": apparent_va,
+            "power_factor": power_factor,
             "enabled": self._enabled,
             "target_soc": self.target_soc,
             "min_soc": self.min_soc,
             "max_current": self.max_current,
             "cost_limit_ct": self.cost_limit_ct,
             "battery_boost": self.battery_boost,
+            "zombie_wakeup_enabled": self.zombie_wakeup_enabled,
             "vehicle_soc": self.vehicle_soc,
             "battery_kwh": getattr(self, '_vehicle_battery_kwh', None),
+            "soc_diagnostic": self.diagnostic_soc_state(),
         }
 
         if self._session:

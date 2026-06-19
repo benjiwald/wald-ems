@@ -9,7 +9,7 @@ from typing import Callable
 
 log = logging.getLogger("ems.db")
 
-VERSION = "1.0.39"
+VERSION = "1.0.42"
 
 
 class DBHandler:
@@ -93,6 +93,34 @@ class DBHandler:
                 "INSERT INTO state (key, value, updated_at) VALUES ('site_state', ?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
                 (json.dumps(state), now),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_state(self, key: str) -> dict | None:
+        """Liest einen JSON-Wert aus der state-Tabelle."""
+        conn = self._get_conn()
+        try:
+            row = conn.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
+            if row is None:
+                return None
+            try:
+                return json.loads(row[0])
+            except (json.JSONDecodeError, TypeError):
+                return None
+        finally:
+            conn.close()
+
+    def set_state(self, key: str, value: dict | None):
+        """Schreibt JSON-Wert in die state-Tabelle (upsert)."""
+        conn = self._get_conn()
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                "INSERT INTO state (key, value, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                (key, json.dumps(value), now),
             )
             conn.commit()
         finally:

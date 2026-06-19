@@ -241,7 +241,7 @@ class ConfigManager:
         for lp in raw.get("loadpoints", []):
             charger_name = lp.get("charger", "")
             meter_name = lp.get("meter", "")
-            self.loadpoints.append({
+            lp_entry = {
                 "id": lp.get("name", ""),  # Name als ID
                 "name": lp.get("name", ""),
                 "charger_asset_id": charger_name_to_id.get(charger_name, ""),
@@ -252,7 +252,16 @@ class ConfigManager:
                 "phases": lp.get("phases", 1),
                 "min_soc": lp.get("min_soc", 0),
                 "target_soc": lp.get("target_soc", 100),
-            })
+            }
+            # Optionale Feintuning-Parameter — nur durchreichen wenn gesetzt,
+            # damit die Loadpoint-Defaults sonst greifen.
+            for opt in ("session_limit_factor", "zombie_wakeup_enabled",
+                        "enable_threshold_w", "enable_delay_s",
+                        "disable_threshold_w", "disable_delay_s",
+                        "battery_boost", "cost_limit_ct", "priority", "circuit_id"):
+                if opt in lp:
+                    lp_entry[opt] = lp[opt]
+            self.loadpoints.append(lp_entry)
 
         # Vehicles
         self.vehicles = []
