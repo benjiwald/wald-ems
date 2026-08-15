@@ -81,17 +81,29 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
 
     def _read_reg(self, key: str) -> float:
         """Liest ein Register aus der DB-Config anhand des Keys."""
+        val = self._read_reg_nullable(key)
+        return val if val is not None else 0.0
+
+    def _read_reg_nullable(self, key: str) -> float | None:
+        """Wie _read_reg, gibt aber None bei Modbus-Fehler zurück (statt 0.0).
+
+        Wichtig für status() und current_power(): Ein Lesefehler (None) ist nicht
+        dasselbe wie der Messwert 0, d.h. wir dürfen nicht auf "nicht verbunden"
+        oder "kein Strom" schließen.
+        """
         reg = self.register_map.get(key)
         if not reg:
-            return 0.0
-        val = self._get_conn().read_register(
-            address=reg["address"],
-            reg_type=reg.get("type", "uint16"),
-            scale=float(reg.get("scale", 1)),
-            unit_id=self.unit_id,
-            word_order=reg.get("word_order", "lsw"),  # NRG Kick = LSW-first
-        )
-        return val if val is not None else 0.0
+            return None
+        try:
+            return self._get_conn().read_register(
+                address=reg["address"],
+                reg_type=reg.get("type", "uint16"),
+                scale=float(reg.get("scale", 1)),
+                unit_id=self.unit_id,
+                word_order=reg.get("word_order", "lsw"),  # NRG Kick = LSW-first
+            )
+        except Exception:
+            return None
 
     def _write_reg(self, key: str, value: float) -> bool:
         """Schreibt einen skalierten Wert in ein writable Register."""
@@ -109,7 +121,14 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
     # ── Charger Interface ─────────────────────────────────────────────────────
 
     def status(self) -> str:
-        raw = int(self._read_reg("charging_state"))
+        raw_val = self._read_reg_nullable("charging_state")
+        if raw_val is None:
+            # Modbus-Fehler: letzten bekannten Status beibehalten statt
+            # auf raw=0 → "A" (nicht verbunden) zu fallen.
+            log.debug("NRG Kick %s: status lesen fehlgeschlagen — %s beibehalten",
+                      self.name, self._last_status)
+            return self._last_status
+        raw = int(raw_val)
         s = STATUS_MAP.get(raw, "F")
         self._cache["charging_state"] = raw
         self._last_status = s
@@ -186,10 +205,15 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
 
     def current_power(self) -> float:
         # Phasenströme als Validator: wenn kein Strom fließt, 0W
-        l1 = self._read_reg("current_l1") if "current_l1" in self.register_map else None
-        l2 = self._read_reg("current_l2") if "current_l2" in self.register_map else 0
-        l3 = self._read_reg("current_l3") if "current_l3" in self.register_map else 0
-        if l1 is not None and l1 < 0.5 and (l2 or 0) < 0.5 and (l3 or 0) < 0.5:
+        # Wichtig: _read_reg_nullable() statt _read_reg() — damit ein Modbus-Lesefehler
+        # (None) nicht als "0A = kein Strom" fehlinterpretiert wird.
+        l1 = self._read_reg_nullable("current_l1") if "current_l1" in self.register_map else None
+        l2 = self._read_reg_nullable("current_l2") if "current_l2" in self.register_map else None
+        l3 = self._read_reg_nullable("current_l3") if "current_l3" in self.register_map else None
+        # Nur wenn alle drei Phasenmessungen erfolgreich (nicht None) und alle < 0.5A
+        # → wirklich kein Strom. Bei Lesefehler (None) lieber weiter mit Reg 210.
+        if (l1 is not None and l2 is not None and l3 is not None
+                and l1 < 0.5 and l2 < 0.5 and l3 < 0.5):
             self._cache["charging_power"] = 0
             return 0.0
 
@@ -232,9 +256,16 @@ class NRGKickCharger(Charger, Meter, PhaseCurrents):
     # ── PhaseCurrents Interface ───────────────────────────────────────────────
 
     def currents(self) -> tuple[float, float, float]:
-        l1 = self._read_reg("current_l1") if "current_l1" in self.register_map else 0
-        l2 = self._read_reg("current_l2") if "current_l2" in self.register_map else 0
-        l3 = self._read_reg("current_l3") if "current_l3" in self.register_map else 0
+        # Nullable reads: bei Lesefehler letzten Cache-Wert beibehalten
+        l1 = self._read_reg_nullable("current_l1") if "current_l1" in self.register_map else None
+        l2 = self._read_reg_nullable("current_l2") if "current_l2" in self.register_map else None
+        l3 = self._read_reg_nullable("current_l3") if "current_l3" in self.register_map else None
+        if l1 is None:
+            l1 = self._cache.get("current_l1", 0.0)
+        if l2 is None:
+            l2 = self._cache.get("current_l2", 0.0)
+        if l3 is None:
+            l3 = self._cache.get("current_l3", 0.0)
         self._cache["current_l1"] = l1
         self._cache["current_l2"] = l2
         self._cache["current_l3"] = l3

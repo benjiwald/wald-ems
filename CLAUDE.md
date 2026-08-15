@@ -528,6 +528,38 @@ pv_w = reg_850 + (reg_808 + reg_809 + reg_810)  # vereinfacht
 | v1.0.37 | Zoe Zombie-Mode | Wake-Up Toggle nach 300s |
 | v1.0.41 | 5-Min-Sofort-Stop (neu!) | Heartbeat: Reg 195 jeden Zyklus in Sofort-Mode; Zombie-Timer 60s für "now" |
 | v1.0.42 | Ladesteuerung von Wald Energycontrol portiert | Reife Loadpoint-Logik übernommen (siehe unten) |
+| v1.0.43 | Treiber-Robustheit portiert (NRG Kick + Renault) | Modbus-Lesefehler ≠ 0; dynamische Gigya-Keys (siehe unten) |
+
+### v1.0.43 — Treiber-Robustheit von Wald Energycontrol übernommen
+v1.0.42 brachte das reife Loadpoint-"Gehirn", aber die Regelung ist nur so gut
+wie die **Rohdaten** der Treiber. Zwei Treiber hinkten beim Bruder-Pi noch nach:
+
+**NRG Kick (`drivers/nrgkick/modbus.py`) — Modbus-Lesefehler ≠ Nullwert.**
+Alte Version: `_read_reg()` gab bei Modbus-Fehler **0.0** zurück. Folge:
+- `status()`: `int(0)` → **"A" (nicht verbunden)** → System denkt Auto ausgesteckt →
+  Session endet, Laden stoppt bei jedem Modbus-Glitch.
+- `current_power()`/`currents()`: **0 A** → "kein Strom" → falsche Solar-Berechnung,
+  evtl. Zombie-Trigger.
+Fix: `_read_reg_nullable()` gibt bei Fehler `None` → `status()` behält letzten Status,
+`currents()` fällt auf Cache zurück. **Wahrscheinliche Hauptursache der Ladeabbrüche.**
+
+**Renault (`drivers/vehicle/renault.py`) — dynamische Gigya-Keys.**
+Alte Version: `GIGYA_API_KEY` hart codiert + `_soc = 0` bei Fehler. Renault rotiert
+die Keys → Login schlägt fehl → SoC bleibt 0 → **kein Stopp bei target_soc**, nur
+grober kWh-Cap. Fix (evcc-Stil):
+- `_load_dynamic_keys()` holt aktuelle Keys aus Renaults S3-KeyStore (24h-Cache,
+  Fallback auf hart codierte Werte), frischerer Fallback-Key (Stand 2026-05).
+- `_soc` initial `None` (nicht 0) → Loadpoint weiß "SoC unbekannt" statt "Auto leer".
+- SoC-Sanity-Filter (0%-Aussetzer ignoriert), Stale-Check (>60min → None).
+- Schnelleres Polling während Ladung (120s statt 300s) → Target-SoC-Stop greift zügiger.
+- POST-Login (statt GET) + detailliertes Auth-Fehler-Logging ins Dashboard.
+- `rv._db = db` in main.py → Renault-Auth-Fehler erscheinen im Dashboard-Log.
+
+Damit ist der komplette **Lade-Pfad** (Loadpoint + NRG-Kick-Treiber + Renault-Treiber
++ site.pv_surplus_w) mit Wald Energycontrol gleichgezogen. Verbleibende Unterschiede
+zu WEC sind reine **Feature-Extras** (Wärmepumpe/KEBA, Consumer-Aufschlüsselung,
+ioBroker, EG-Tarif, Pytes-Pack-Monitor, ev_priority_pct, Peak-Avoidance) — nicht
+lade-relevant.
 
 ### 5-Min-Stop — Warum v1.0.25 nicht dauerhaft half
 v1.0.25 schrieb Register 194 (Strom) jeden Zyklus. Der NRG Kick Watchdog

@@ -156,6 +156,7 @@ def build_site(cfg: ConfigManager) -> Site:
             try:
                 from drivers.vehicle.renault import RenaultVehicle
                 rv = RenaultVehicle(vc)
+                rv._db = db  # Renault-Auth/Poll-Fehler landen im Dashboard-Log
                 _vehicle_drivers[vc["id"]] = rv
                 if db:
                     db.publish_log("info", f"Renault-Driver erstellt fuer {rv.name}")
