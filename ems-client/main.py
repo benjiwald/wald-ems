@@ -238,6 +238,15 @@ def handle_command(cmd: dict):
                 db.publish_log("info", f"Ladepunkt {lp.name}: Ziel-SoC → {value:.0f}%")
                 break
 
+    elif action == "set_active_vehicle":
+        # Payload: { "loadpoint": "<name>", "vehicle": "default"|"guest" }
+        lp_name = cmd.get("loadpoint", "")
+        vehicle = cmd.get("vehicle", "default")
+        for lp in (site.loadpoints if site else []):
+            if lp.name == lp_name or lp.id == lp_name:
+                lp.set_active_vehicle(vehicle)
+                break
+
     elif action == "restart_client":
         db.publish_log("info", "Neustart auf Befehl")
         time.sleep(1)
@@ -248,6 +257,24 @@ def handle_command(cmd: dict):
 
     elif action == "ping":
         db.publish_log("info", "pong", {"ts": datetime.now(timezone.utc).isoformat()})
+
+    elif action == "reset_loadpoint_estimation":
+        # SoC-Estimation-State verwerfen (z.B. nach kaputtem Lazy-Init).
+        lp_name = cmd.get("loadpoint", "")
+        for lp in (site.loadpoints if site else []):
+            if lp.name == lp_name or lp.id == lp_name or not lp_name:
+                before = lp.force_reset_session_estimation()
+                db.publish_log("info", f"LP {lp.name}: reset_estimation ausgeführt (war: {before})")
+
+    elif action == "force_vehicle_poll":
+        # Sofortiger Renault-Poll (umgeht POLL_INTERVAL), Diagnose ins Dashboard-Log.
+        for vid, vdrv in _vehicle_drivers.items():
+            try:
+                vdrv.poll(force=True)
+                if hasattr(vdrv, "diagnostic"):
+                    db.publish_log("info", f"Vehicle {vid} diagnostic: {vdrv.diagnostic()}")
+            except Exception as e:
+                db.publish_log("error", f"force_vehicle_poll {vid}: {e}")
 
     else:
         log.warning("Unbekanntes Kommando: %s", action)

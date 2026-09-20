@@ -27,6 +27,15 @@ class Site:
         self.buffer_w: float = config.get("buffer_w") or 100
         self.priority_soc: float = config.get("priority_soc") or 0
 
+        # PV-Priorisierung Auto vs. Speicher (v1.10). 0.0-1.0, Default 1.0
+        # (= 100% Auto-Prioritaet, entspricht dem bisherigen fest verdrahteten
+        # "Auto-vor-Batterie"-Verhalten). Wird auf den unabhaengig gemessenen
+        # pv_surplus_w-Pool angewendet BEVOR er an die Loadpoints geht — nicht
+        # auf battery_redirect_w (selbst-referenzierende Groesse, siehe unten
+        # in update() fuer Details wieso das ein Unterschied ist).
+        raw_pct = config.get("ev_priority_pct", 100)
+        self.ev_priority_fraction: float = max(0.0, min(100.0, float(raw_pct))) / 100.0
+
         # evcc nutzt keine EWMA-Glättung — Enable/Disable Delays reichen als Filter
         self.buffer_soc: float = config.get("buffer_soc") or 0
 
@@ -55,6 +64,8 @@ class Site:
         # Forecast + Tariff (werden von main.py gesetzt)
         self.solar_forecast = None  # SolarForecast instance
         self.tariff = None  # AWATTarTariff instance
+        self.feedin_tariff = None  # OemagFeedinTariff (v1.11)
+        self.grid_peak = None  # GridPeakTracker (v1.11)
 
         # Letzte berechnete Werte
         self.grid_power_w: float = 0
@@ -64,6 +75,7 @@ class Site:
         self.consumption_w: float = 0
         self.available_w: float = 0
         self.pv_surplus_w: float = 0
+        self.pv_surplus_w_for_ev: float = 0  # nach ev_priority_fraction (v1.10)
 
     def update(self) -> dict:
         """Hauptregelzyklus — alle 30 Sekunden aufrufen.
@@ -134,6 +146,10 @@ class Site:
                 else:
                     self.consumption_w = 0  # Gleicher Meter wie Grid → aus _last_metrics
 
+        # Netzspitze im Viertelstundenraster mitschreiben (v1.11)
+        if self.grid_peak:
+            self.grid_peak.update(self.grid_power_w)
+
         # 2. Verfügbare Leistung berechnen (wie evcc)
         #
         # Formel: available = aktuelle_LP_Leistung + (-grid) - buffer
@@ -153,28 +169,90 @@ class Site:
         # hinkt grid_power hinterher, weil LP.update() spaeter im Zyklus laeuft).
         def _lp_power_for_calc(lp):
             if lp._last_written_enabled and lp._target_current_a > 0:
-                return lp._target_current_a * 230 * lp.phases
+                return lp._target_current_a * getattr(lp, "_w_per_a", 230 * lp.phases)
             return lp._charging_power_w
 
         current_lp_power = sum(_lp_power_for_calc(lp) for lp in self.loadpoints)
         surplus_w = current_lp_power - self.grid_power_w - self.buffer_w
 
-        # Auto-vor-Batterie (evcc-Style):
-        # Wenn Hausbatterie gerade laedt UND SoC ueber priority_soc,
-        # steht diese Ladeleistung dem Auto zur Verfuegung (PV-Ueberschuss
-        # geht erst ins Auto, dann in die Batterie).
-        # battery_power_w > 0 = laedt, < 0 = entlaedt
+        # Auto-vor-Batterie (evcc-Style), jetzt mit ev_priority_fraction (v1.10):
+        # Wenn Hausbatterie gerade laedt UND SoC ueber priority_soc, steht ein
+        # Anteil dieser Ladeleistung dem Auto zur Verfuegung (PV-Ueberschuss
+        # geht erst ins Auto, dann in die Batterie). Bei fraction=1.0 (Default,
+        # bisheriges Verhalten): 100% umleitbar. Bei kleinerem Wert: weniger
+        # aggressiv, Batterie behaelt mehr.
+        #
+        # WICHTIG (Verhalten von battery_redirect_w bei available_w/pv-Modus):
+        # Die Formel surplus_w = current_lp_power - grid - buffer verwendet
+        # die AKTUELLE LP-Leistung als Basis und regelt ueber die Grid-
+        # Abweichung nach — das ist ein Regelkreis, kein direkter Blockwert.
+        # Dadurch konvergiert battery_redirect_w NICHT zu einem sauberen
+        # Prozentsatz-Split (das Auto "erobert" iterativ immer mehr vom
+        # PV-Ueberschuss, bis die Batterie nur noch den Buffer-Rest bekommt —
+        # unabhaengig vom fraction-Wert, nur langsamer bei kleinerem fraction).
+        # Fuer eine SAUBERE Prozentsatz-Aufteilung wird stattdessen
+        # pv_surplus_w_for_ev (unten) verwendet, das direkt aus PV-Leistung
+        # und Hausgrundlast berechnet wird — ohne Regelkreis-Rueckkopplung.
+        # battery_redirect_w bleibt fuer den "pv"-Modus (on/off-Modus mit
+        # Hysterese) als richtungsweisende, aber nicht exakt proportionale
+        # Drosselung bestehen.
         battery_redirect_w = 0
         if self.battery_power_w > 50:  # Batterie laedt
             if self.priority_soc <= 0 or self.battery_soc >= self.priority_soc:
-                battery_redirect_w = self.battery_power_w
-                log.debug("Auto-Vorrang: Batterie laedt %.0fW -> fuers Auto umleitbar (SoC %.0f%%)",
-                          battery_redirect_w, self.battery_soc)
+                battery_redirect_w = self.battery_power_w * self.ev_priority_fraction
+                log.debug("Auto-Vorrang: Batterie laedt %.0fW -> %.0fW umleitbar (Anteil %.0f%%, SoC %.0f%%)",
+                          self.battery_power_w, battery_redirect_w,
+                          self.ev_priority_fraction * 100, self.battery_soc)
 
         # Grid-Limit als Obergrenze (schützt vor Überlast am Netzanschluss)
         grid_headroom_w = self.grid_limit_w - self.grid_power_w - self.buffer_w
 
         self.available_w = min(surplus_w + battery_redirect_w, grid_headroom_w)
+
+        # Echter PV-Surplus (ohne Batterie als Quelle):
+        # PV-Leistung minus Hausgrundlast (= consumption_w ohne LPs).
+        # Wird im min_pv-Modus benutzt, damit der LP NICHT die Batterie
+        # leerzieht, wenn nicht genug PV da ist (User-Bug-Report 01.05.2026).
+        # available_w (oben) bleibt unveraendert — pv-only-Mode mit Hysterese
+        # nutzt diese Formel weiterhin.
+        #
+        # house_base_w wird aus dem UNABHAENGIG gemessenen consumption_w
+        # berechnet (Meter-Wert minus aktuelle LP-Leistung) — keine
+        # Rueckkopplungsschleife wie bei surplus_w oben. self.pv_surplus_w
+        # ist deshalb der TATSAECHLICHE Gesamt-Pool fuer Auto+Batterie
+        # zusammen, gemessen frisch in jedem Zyklus.
+        # GEMESSENE LP-Leistung abziehen, nicht die nominelle Soll-Leistung aus
+        # _lp_power_for_calc: consumption_w enthaelt den realen Bezug der Wallbox.
+        # Die Zoe zieht bei 9 A real ~4,65 kW statt nominell 6,2 kW; mit dem
+        # Nominalwert wurde die Grundlast um ~1,5 kW zu niedrig und der
+        # PV-Ueberschuss entsprechend zu hoch gerechnet.
+        measured_lp_power = sum(lp._charging_power_w for lp in self.loadpoints)
+        house_base_w = max(0, self.consumption_w - measured_lp_power)
+        self.pv_surplus_w = max(0, self.pv_power_w - house_base_w - self.buffer_w)
+
+        # PV-Priorisierung Auto vs. Speicher (v1.10): dieser Teil des
+        # pv_surplus_w-Pools wird dem Auto angeboten (min_pv-Modus). Der Rest
+        # (self.pv_surplus_w - pv_surplus_w_for_ev) fliesst automatisch in
+        # die Batterie — nicht durch dieses Skript gesteuert, sondern durch
+        # Victrons eigene ESS-Logik (zero-grid-import), die jede vom Auto
+        # NICHT abgerufene PV-Leistung selbststaendig in die Batterie
+        # umleitet. Deshalb genuegt es, dem Auto nur seinen Anteil
+        # anzubieten — kein explizites Batterie-Limit noetig.
+        self.pv_surplus_w_for_ev = self.pv_surplus_w * self.ev_priority_fraction
+
+        # Ungenutzten Batterie-Anteil ans Auto umleiten (v1.10.3):
+        # Wenn die Batterie ihren reservierten Anteil nicht abruft (z.B. voll,
+        # Temperatur-Drosselung, Absorption-Tapering am Ladeende), wuerde die
+        # Differenz sonst ungenutzt ins Netz gehen statt dem Auto zuzufliessen.
+        # Bug-Report 18.07.2026: Speicher 100% voll, Slider auf 50/50, nur die
+        # Haelfte des Ueberschusses ging ans Auto, der Rest wurde exportiert
+        # statt dem Auto angeboten zu werden.
+        battery_share_w = self.pv_surplus_w - self.pv_surplus_w_for_ev
+        battery_unused_w = max(0, battery_share_w - max(0, self.battery_power_w))
+        if battery_unused_w > 0:
+            self.pv_surplus_w_for_ev = min(self.pv_surplus_w, self.pv_surplus_w_for_ev + battery_unused_w)
+            log.debug("Batterie nutzt reservierten Anteil nicht (Soll %.0fW, Ist %.0fW, SoC %.0f%%) -> %.0fW zusaetzlich ans Auto",
+                      battery_share_w, self.battery_power_w, self.battery_soc, battery_unused_w)
 
         # Batterie-Vorrang unter priority_soc:
         # Unter prioritySoc → Batterie hat Vorrang, nichts fuer Loadpoints
@@ -185,14 +263,6 @@ class Site:
 
         log.debug("Available: surplus=%.0fW bat_redirect=%.0fW grid_headroom=%.0fW lp_power=%.0fW → available=%.0fW",
                   surplus_w, battery_redirect_w, grid_headroom_w, current_lp_power, self.available_w)
-
-        # Echter PV-Surplus (ohne Batterie als Quelle):
-        # PV-Leistung minus Hausgrundlast (= consumption_w ohne LPs).
-        # Wird im min_pv-Modus benutzt, damit der LP NICHT die Batterie
-        # leerzieht, wenn nicht genug PV da ist. available_w (oben) bleibt
-        # unveraendert — pv-only-Mode mit Hysterese nutzt diese Formel weiterhin.
-        house_base_w = max(0, self.consumption_w - current_lp_power)
-        self.pv_surplus_w = max(0, self.pv_power_w - house_base_w - self.buffer_w)
 
         # 3. Circuit-Lasten zurücksetzen
         self.circuits.reset_all()
@@ -219,8 +289,11 @@ class Site:
 
             # Loadpoint bekommt das Minimum aus verfügbar + Boost + Circuit-Limit
             lp_available_w = min(remaining_w + lp_boost_w, circuit_max_w)
-            # PV-Surplus (echter, ohne Batterie) auch auf circuit_max_w + Boost begrenzen
-            lp_pv_surplus_w = min(self.pv_surplus_w + lp_boost_w, circuit_max_w)
+            # PV-Surplus auch begrenzen auf circuit_max_w + boost.
+            # pv_surplus_w_for_ev (nicht pv_surplus_w!) beruecksichtigt die
+            # ev_priority_fraction — der Rest bleibt automatisch fuer die
+            # Batterie (siehe Kommentar oben bei der Berechnung).
+            lp_pv_surplus_w = min(self.pv_surplus_w_for_ev + lp_boost_w, circuit_max_w)
             used_w = lp.update(lp_available_w, self.grid_power_w, pv_surplus_w=lp_pv_surplus_w)
             remaining_w -= used_w
 
@@ -274,8 +347,24 @@ class Site:
             "consumption_w": round(self.consumption_w),
             "available_w": round(self.available_w),
             "pv_surplus_w": round(self.pv_surplus_w),
+            "pv_surplus_w_for_ev": round(self.pv_surplus_w_for_ev),
+            "ev_priority_pct": round(self.ev_priority_fraction * 100),
             "loadpoints": [lp.state() for lp in self.loadpoints],
         }
+
+        # Battery-Details (Voltage/Current) wenn Driver sie bereitstellt
+        if self.battery:
+            try:
+                if hasattr(self.battery, "battery_voltage"):
+                    bv = self.battery.battery_voltage()
+                    if bv is not None:
+                        state["battery_voltage"] = round(bv, 2)
+                if hasattr(self.battery, "battery_current"):
+                    bc = self.battery.battery_current()
+                    if bc is not None:
+                        state["battery_current"] = round(bc, 2)
+            except Exception:
+                pass
 
         # Circuit-Status anhängen (wenn konfiguriert)
         circuit_state = self.circuits.state()
@@ -290,6 +379,12 @@ class Site:
         # Tarife
         state["grid_price_ct"] = round(self.grid_price_eur_kwh * 100, 1)
         state["feedin_price_ct"] = round(self.feedin_price_eur_kwh * 100, 1)
+        if self.feedin_tariff:
+            self.feedin_price_eur_kwh = self.feedin_tariff.effective_ct / 100.0
+            state["feedin_price_ct"] = round(self.feedin_tariff.effective_ct, 2)
+            state["feedin"] = self.feedin_tariff.to_dict()
+        if self.grid_peak:
+            state["grid_peak"] = self.grid_peak.state()
 
         # Forecast
         if self.solar_forecast:

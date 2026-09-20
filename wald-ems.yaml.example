@@ -11,6 +11,9 @@ site:
                              # die Hausbatterie davor, waehrend Wolken-Puffer
                              # leergezogen zu werden. battery_redirect (Auto-vor-
                              # Batterie) greift erst ab diesem SoC.
+  ev_priority_pct: 100       # Anteil des PV-Ueberschusses fuers Auto (0-100).
+                             # 100 = Auto zuerst, 70 = 30 % bleiben dem Speicher.
+                             # Was der Speicher nicht abruft, geht trotzdem ans Auto.
   grid_price_eur_kwh: 0.27   # Strombezugspreis
   feedin_price_eur_kwh: 0.065 # Einspeiseverguetung
 
@@ -41,6 +44,13 @@ loadpoints:
     phases: 3                # Zoe: IMMER 3-phasig, NIE umschalten (killt Session)
     target_soc: 90           # Laden bis hier (braucht Vehicle mit battery_kwh)
     min_soc: 20              # Erzwingt Laden unter diesem SoC
+    # PV-Modus-Hysterese (Defaults passen fuer die Zoe):
+    # enable_threshold_w: 4000   # ab diesem Ueberschuss startet die Ladung ...
+    # enable_delay_s: 20         # ... wenn er so lange ansteht
+    # disable_threshold_w: 3500  # darunter laeuft der Abschalt-Timer. NICHT 0 setzen:
+    #                            # der Hausspeicher verdeckt den Netzbezug, das Auto
+    #                            # wuerde sonst aus dem Speicher weiterladen.
+    # disable_delay_s: 300       # 5 Min Wolkenpuffer (laedt solange mit min_current)
     # session_limit_factor: 0.95  # Safety-Cap: max 95% der battery_kwh pro Session
     #                              # (greift falls SoC-Estimation/Cloud-API ausfaellt)
     # zombie_wakeup_enabled: false # CP-Toggle nach Stillstand. Bei Renault AUTOMATISCH

@@ -37,9 +37,16 @@ fi
 
 cd "$INSTALL_DIR"
 
-# Git safe.directory fuer root UND ems-User setzen
-git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
-su -c "git config --global --add safe.directory $INSTALL_DIR" ems 2>/dev/null || true
+# safe.directory idempotent setzen — ein blindes --add haengt bei jedem Aufruf
+# eine Zeile an ~/.gitconfig
+ensure_safe_dir() {
+    local as_user="${1:-}"
+    local cmd="git config --global --get-all safe.directory 2>/dev/null | grep -qx '$INSTALL_DIR' || git config --global --add safe.directory '$INSTALL_DIR'"
+    if [ -n "$as_user" ]; then su -c "$cmd" "$as_user" 2>/dev/null || true; else bash -c "$cmd" 2>/dev/null || true; fi
+}
+ensure_safe_dir
+ensure_safe_dir ems
+rm -rf "$INSTALL_DIR"/.git.old-* 2>/dev/null || true
 
 OLD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
@@ -109,26 +116,43 @@ fi
 
 # Config und DB wiederherstellen
 if [ "$BACKUP_YAML" = "1" ]; then
-    cp /tmp/wald-ems-yaml-backup "$INSTALL_DIR/wald-ems.yaml"
-    rm /tmp/wald-ems-yaml-backup
+    # Nur zurueckspielen wenn sie fehlt — der Client schreibt Modus/Target-SoC
+    # in die YAML, eine alte Kopie wuerde Aenderungen waehrend des Updates verwerfen.
+    if [ ! -f "$INSTALL_DIR/wald-ems.yaml" ]; then
+        cp /tmp/wald-ems-yaml-backup "$INSTALL_DIR/wald-ems.yaml"
+    fi
+    rm -f /tmp/wald-ems-yaml-backup
     echo -e "  wald-ems.yaml beibehalten"
 fi
 if [ "$BACKUP_DB" = "1" ]; then
-    cp /tmp/wald-ems-db-backup "$INSTALL_DIR/wald-ems.db"
-    rm /tmp/wald-ems-db-backup
-    echo -e "  wald-ems.db beibehalten"
+    # Die DB wird weder vom Tarball noch von git angefasst. Die Kopie NICHT ueber
+    # die laufende WAL-Datenbank zurueckspielen: beide Dienste schreiben waehrend
+    # des Updates weiter, ein Minuten altes Hauptfile unter einem neueren -wal
+    # kostet Daten (Session-State!) und kann die DB beschaedigen.
+    # Nur wiederherstellen, wenn die DB nach dem Update wirklich fehlt.
+    if [ ! -f "$INSTALL_DIR/wald-ems.db" ]; then
+        cp /tmp/wald-ems-db-backup "$INSTALL_DIR/wald-ems.db"
+        echo -e "${YELLOW}  wald-ems.db fehlte — aus Backup wiederhergestellt${NC}"
+    else
+        echo -e "  wald-ems.db unangetastet"
+    fi
+    rm -f /tmp/wald-ems-db-backup
 fi
 
 # .git wiederherstellen
 if [ -d /tmp/wald-ems-git-backup ]; then
-    rm -rf "$INSTALL_DIR/.git"
+    # Per Rename tauschen statt rm -rf: der Update-Check des Dashboards macht
+    # parallel git fetch und legt sonst waehrend des Loeschens neue Dateien an
+    # ("rm: Directory not empty" -> Update bricht vor dem Neustart ab)
+    OLD_GIT="$INSTALL_DIR/.git.old-$$"
+    if [ -d "$INSTALL_DIR/.git" ]; then mv "$INSTALL_DIR/.git" "$OLD_GIT"; fi
     mv /tmp/wald-ems-git-backup "$INSTALL_DIR/.git"
 fi
 
 # Git-Repo aktualisieren (fuer Update-Check im Dashboard)
 if [ -d "$INSTALL_DIR/.git" ]; then
-    git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
-    su -c "git config --global --add safe.directory $INSTALL_DIR" ems 2>/dev/null || true
+    ensure_safe_dir
+    ensure_safe_dir ems
     git -C "$INSTALL_DIR" fetch origin main 2>&1 || echo -e "${YELLOW}  Git fetch fehlgeschlagen${NC}"
     git -C "$INSTALL_DIR" reset --hard origin/main 2>&1 || echo -e "${YELLOW}  Git reset fehlgeschlagen${NC}"
     echo -e "  Git HEAD: $(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo 'unbekannt')"

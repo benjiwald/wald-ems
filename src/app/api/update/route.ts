@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getState } from "@/lib/db";
-import { execSync, spawn } from "child_process";
+import { execFileSync, execSync, spawn } from "child_process";
 import path from "path";
 import { readFileSync } from "fs";
 
@@ -37,8 +37,19 @@ export async function GET() {
   const installDir = getInstallDir();
 
   try {
-    // safe.directory setzen (noetig wenn ems-User auf root-owned Repo zugreift)
-    execSync(`git config --global --add safe.directory ${installDir}`, { timeout: 5000 }).toString();
+    // safe.directory nur setzen wenn es fehlt (noetig wenn ems-User auf ein
+    // root-owned Repo zugreift). Ein blindes --add haengt bei jedem Check eine
+    // Zeile an ~/.gitconfig. cwd explizit: waehrend eines Updates wird
+    // dashboard/ ersetzt und process.cwd() zeigt ins Leere.
+    let safeDirs = "";
+    try {
+      safeDirs = execFileSync("git", ["config", "--global", "--get-all", "safe.directory"], { cwd: installDir, timeout: 5000 }).toString();
+    } catch {
+      // noch kein Eintrag vorhanden
+    }
+    if (!safeDirs.split("\n").map((s) => s.trim()).includes(installDir)) {
+      execFileSync("git", ["config", "--global", "--add", "safe.directory", installDir], { cwd: installDir, timeout: 5000 });
+    }
 
     // Git fetch um Remote-Status zu holen
     execSync("git fetch origin main --quiet", { cwd: installDir, timeout: 15000 });

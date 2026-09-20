@@ -461,7 +461,7 @@ Einzige Lösung: CP-Signal-Wechsel durch Pause-Toggle (kurz ausschalten).
 ```yaml
 enable_threshold_w: 4000   # 4 kW müssen verfügbar sein zum Starten (PV-Mode)
 enable_delay_s: 20         # 20s warten bevor Enable (PV-Mode)
-disable_threshold_w: 0     # Bei negativem Überschuss stoppen
+disable_threshold_w: 3500  # darunter läuft der Abschalt-Timer (nie 0: Speicher verdeckt Netzbezug)
 disable_delay_s: 300       # 5 Min Wolken-Puffer (PV-Mode)
 ```
 
@@ -529,6 +529,46 @@ pv_w = reg_850 + (reg_808 + reg_809 + reg_810)  # vereinfacht
 | v1.0.41 | 5-Min-Sofort-Stop (neu!) | Heartbeat: Reg 195 jeden Zyklus in Sofort-Mode; Zombie-Timer 60s für "now" |
 | v1.0.42 | Ladesteuerung von Wald Energycontrol portiert | Reife Loadpoint-Logik übernommen (siehe unten) |
 | v1.0.43 | Treiber-Robustheit portiert (NRG Kick + Renault) | Modbus-Lesefehler ≠ 0; dynamische Gigya-Keys (siehe unten) |
+| v1.0.44 | PV-Modus startete nicht / lud aus dem Speicher weiter; update.sh ueberschrieb laufende DB | Stand WEC v1.11.3 portiert (siehe unten) |
+
+### v1.0.44 — PV-Modus-Fix (Stand Wald Energycontrol v1.11.3) + update.sh
+Abgleich gegen das laufende Wald Energycontrol (v1.11.3, 20.09.2026). Der in v1.0.42
+portierte Loadpoint (Stand v1.8.6) hatte zwei Fehler, die WEC inzwischen gefixt hat
+und die exakt die Symptome beim Bruder erklaeren:
+
+1. **PV-Modus startete nicht / pendelte.** `_apply_hysteresis` gab den ROHEN Strom
+   zurueck (`Ueberschuss / 690`). Lag der Ueberschuss zwischen `enable_threshold_w`
+   (4 kW) und der nominellen Mindestleistung (9 A = 6,2 kW; bei `min_current: 13`
+   sogar 9 kW), sagte die Hysterese "an" und Schritt 8 in `update()` nullte sofort
+   wieder. Log: alle 20 s `PV Enable`, nie eine Freigabe. Im Betrieb schaltete jeder
+   Dip unter 6,2 kW sofort ab, an `disable_delay_s` vorbei. Fix: Hysterese gibt
+   mindestens `min_current` zurueck; an/aus entscheidet allein die Hysterese.
+2. **Lud aus dem Hausspeicher weiter.** `available_w` ist selbstreferenziell
+   (`LP-Soll-Leistung − Netz − Puffer`). Deckt der Victron-Speicher die Wallbox,
+   bleibt das Netz bei 0 und `available_w` hoch, egal ob die Sonne weg ist. Mit
+   `disable_threshold_w: 0` lief der Abschalt-Timer nie an, auch `priority_soc` half
+   nicht (setzt nur auf 0, und `0 < 0` ist falsch). Fix: PV-Modus regelt auf
+   `min(pv_surplus_w_for_ev, available_w)`; `pv_surplus_w` = PV − Hausgrundlast aus
+   GEMESSENER LP-Leistung. Default `disable_threshold_w` 0 → **3500 W**.
+
+Ausserdem uebernommen: SoC-Anker-Drift-Fix (v1.9.3/4), `ev_priority_pct` (YAML,
+`site:`-Block, Default 100), ungenutzter Speicher-Anteil geht ans Auto (v1.10.3),
+Gastfahrzeug-Logik (nur Backend, Befehl `set_active_vehicle`), Diagnose-Befehle
+`reset_loadpoint_estimation` + `force_vehicle_poll`. Bruder-spezifisch erhalten:
+NRG-Kick-Heartbeat (Reg 195) und 60-s-Zombie-Timer im Sofort-Modus.
+
+**Modus-Persistenz:** `update_loadpoint_mode` schrieb nur in den RAM. Nach jedem
+Client-Neustart (also jedem Update) fiel der Modus auf den YAML-Wert zurueck.
+Schreibt jetzt in die YAML.
+
+**update.sh:** (a) Das Skript kopierte `wald-ems.db` am Anfang weg und spielte sie am
+Ende ueber die LAUFENDE WAL-Datenbank zurueck, waehrend beide Dienste schrieben
+(ARM-Build dauert Minuten). Datenverlust bis DB-Schaden moeglich. Wird jetzt nur
+noch wiederhergestellt, wenn die DB fehlt; gleiches fuer die YAML. (b) `.git`-Restore
+per Rename statt `rm -rf` (Race mit dem `git fetch` des Dashboard-Update-Checks,
+in WEC am 16.09.2026 real aufgetreten). (c) `safe.directory` idempotent.
+**Achtung:** Das Update AUF v1.0.44 laeuft noch mit dem alten Skript vom Pi. Danach
+Log pruefen: `cat /tmp/wald-ems-update.log`.
 
 ### v1.0.43 — Treiber-Robustheit von Wald Energycontrol übernommen
 v1.0.42 brachte das reife Loadpoint-"Gehirn", aber die Regelung ist nur so gut

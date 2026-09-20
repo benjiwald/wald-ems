@@ -99,11 +99,12 @@ class ConfigManager:
         return False
 
     def update_loadpoint_mode(self, lp_name: str, mode: str):
-        """Aktualisiert Mode im Loadpoint (nur im Speicher, nicht in YAML)."""
-        for lp in self.loadpoints:
-            if lp.get("name") == lp_name:
-                lp["mode"] = mode
-                log.info("Loadpoint %s → mode=%s", lp_name, mode)
+        """Aktualisiert Mode im Loadpoint in Speicher UND YAML.
+
+        Nur im Speicher ging der Modus bei jedem Client-Neustart (Update!)
+        verloren und fiel auf den YAML-Wert zurueck.
+        """
+        self.update_loadpoint_field(lp_name, "mode", mode)
 
     def update_vehicle_soc(self, vehicle_id: str, soc: float,
                            range_km: float = 0, is_charging: bool = False):
@@ -159,6 +160,7 @@ class ConfigManager:
             "grid_limit_kw": site.get("grid_limit_kw", 11),
             "buffer_w": site.get("buffer_w", 100),
             "priority_soc": site.get("priority_soc", 0),
+            "ev_priority_pct": site.get("ev_priority_pct", 100),
             "grid_price_eur_kwh": site.get("grid_price_eur_kwh", 0.27),
             "feedin_price_eur_kwh": site.get("feedin_price_eur_kwh", 0.065),
             "demo": site.get("demo", False),
