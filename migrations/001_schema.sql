@@ -1,4 +1,4 @@
--- Wald EMS SQLite Schema
+-- Hörmanns-EMS SQLite Schema
 -- Replaces Supabase PostgreSQL for fully local operation
 
 PRAGMA journal_mode=WAL;

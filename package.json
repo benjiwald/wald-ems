@@ -1,8 +1,8 @@
 {
   "name": "wald-ems",
-  "version": "1.0.44",
+  "version": "1.0.45",
   "private": true,
-  "description": "Self-hosted Energy Management System for Raspberry Pi",
+  "description": "Hörmanns-EMS — self-hosted energy management for Raspberry Pi (technical name: wald-ems)",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

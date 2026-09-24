@@ -1,4 +1,4 @@
-# Wald EMS Client — Python Dependencies
+# Hörmanns-EMS Client — Python Dependencies
 # Kein MQTT nötig (lokaler SQLite-Betrieb)
 
 # Core

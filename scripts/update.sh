@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ──────────────────────────────────────────────────────────────────────
-# Wald EMS — Update-Skript fuer Raspberry Pi
+# Hörmanns-EMS — Update-Skript fuer Raspberry Pi
 # Nutzung: sudo /opt/ems/scripts/update.sh
 # ──────────────────────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ INSTALL_DIR="/opt/ems"
 REPO="benjiwald/wald-ems"
 RELEASE_URL="https://github.com/${REPO}/releases/latest/download/wald-ems.tar.gz"
 
-echo -e "${GREEN}Wald EMS Update${NC}"
+echo -e "${GREEN}Hörmanns-EMS Update${NC}"
 echo "═══════════════════════════"
 
 if [ "$EUID" -ne 0 ]; then
@@ -30,7 +30,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 if [ ! -d "$INSTALL_DIR" ]; then
-    echo -e "${RED}Wald EMS nicht installiert. Bitte zuerst:${NC}"
+    echo -e "${RED}Hörmanns-EMS nicht installiert. Bitte zuerst:${NC}"
     echo "  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | sudo bash"
     exit 1
 fi

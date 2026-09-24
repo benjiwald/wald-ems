@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Wald EMS Client — Lokales Energiemanagementsystem
+Hörmanns-EMS Client — Lokales Energiemanagementsystem
 ==================================================
 Lokale Version des Wania EMS Clients.
 Kommuniziert via SQLite, Konfiguration via wald-ems.yaml.
@@ -285,7 +285,7 @@ def handle_command(cmd: dict):
 def main():
     global db, config, site, drivers
 
-    log.info("Wald EMS Client v%s gestartet", VERSION)
+    log.info("Hörmanns-EMS Client v%s gestartet", VERSION)
     log.info("Config: %s", CONFIG_PATH)
 
     # Config laden
@@ -307,7 +307,7 @@ def main():
     # Site aufbauen
     site = build_site(config)
 
-    db.publish_log("info", f"Wald EMS gestartet: {len(config.assets)} Geräte, "
+    db.publish_log("info", f"Hörmanns-EMS gestartet: {len(config.assets)} Geräte, "
                            f"{len(site.loadpoints if site else [])} Ladepunkte")
 
     # ── Demo-Modus ───────────────────────────────────────────────────────────
@@ -468,7 +468,7 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        log.info("Wald EMS Client beendet")
+        log.info("Hörmanns-EMS Client beendet")
         if db:
             db.disconnect()
         close_modbus()

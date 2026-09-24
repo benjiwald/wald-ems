@@ -183,7 +183,7 @@ export default function Dashboard() {
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
         {/* Status bar */}
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>{state.site_name || "Wald EMS"}</span>
+          <span>{state.site_name || "Hörmanns-EMS"}</span>
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${connected ? "bg-status-online glow-dot" : "bg-status-offline"}`} />
             <span>Aktualisiert vor {timeSince}</span>

@@ -156,7 +156,7 @@ class ConfigManager:
         # Site Config
         site = raw.get("site", {})
         self.site_config = {
-            "name": site.get("name", "Wald EMS"),
+            "name": site.get("name", "Hörmanns-EMS"),
             "grid_limit_kw": site.get("grid_limit_kw", 11),
             "buffer_w": site.get("buffer_w", 100),
             "priority_soc": site.get("priority_soc", 0),

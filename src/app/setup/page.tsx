@@ -373,7 +373,7 @@ export default function SetupWizard() {
           <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
             <Zap className="w-5 h-5 text-primary" />
           </div>
-          <h1 className="text-lg font-semibold tracking-tight">Wald EMS</h1>
+          <h1 className="text-lg font-semibold tracking-tight">Hörmanns-EMS</h1>
         </div>
         <span className="text-sm text-muted-foreground">Einrichtung</span>
       </header>
@@ -535,7 +535,7 @@ function StepWelcome({ siteName, setSiteName, gridLimit, setGridLimit, buffer, s
         <div className="w-14 h-14 rounded-2xl bg-primary/20 flex items-center justify-center mx-auto mb-4">
           <Zap className="w-8 h-8 text-primary" />
         </div>
-        <h2 className="text-2xl font-bold tracking-tight">Wald EMS einrichten</h2>
+        <h2 className="text-2xl font-bold tracking-tight">Hörmanns-EMS einrichten</h2>
         <p className="text-sm text-muted-foreground max-w-md mx-auto">
           Willkommen! In wenigen Schritten konfigurierst du dein lokales Energiemanagementsystem.
         </p>

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ──────────────────────────────────────────────────────────────────────
-# Wald EMS — Installer fuer Raspberry Pi / Linux
+# Hörmanns-EMS — Installer fuer Raspberry Pi / Linux
 # Nutzung: curl -fsSL https://raw.githubusercontent.com/benjiwald/wald-ems/main/scripts/install.sh | sudo bash
 # ──────────────────────────────────────────────────────────────────────
 
@@ -17,7 +17,7 @@ RELEASE_URL="https://github.com/${REPO}/releases/latest/download/wald-ems.tar.gz
 
 echo -e "${GREEN}"
 echo "╔══════════════════════════════════════╗"
-echo "║          Wald EMS Installer          ║"
+echo "║          Hörmanns-EMS Installer          ║"
 echo "║    Lokales Energiemanagement         ║"
 echo "╚══════════════════════════════════════╝"
 echo -e "${NC}"
@@ -54,7 +54,7 @@ mkdir -p "$INSTALL_DIR"
 
 # ── 3. Pre-built Release herunterladen ──────────────────────────────
 
-echo -e "${YELLOW}[3/6] Wald EMS herunterladen...${NC}"
+echo -e "${YELLOW}[3/6] Hörmanns-EMS herunterladen...${NC}"
 
 # Versuche fertiges Release (von GitHub Actions gebaut)
 if curl -fsSL -o /tmp/wald-ems.tar.gz "$RELEASE_URL" 2>/dev/null; then
@@ -163,7 +163,7 @@ LOCAL_IP=$(hostname -I | awk '{print $1}')
 
 echo ""
 echo -e "${GREEN}╔═══════════════════════════════════════════════════╗"
-echo -e "║  Wald EMS erfolgreich installiert!                 ║"
+echo -e "║  Hörmanns-EMS erfolgreich installiert!                 ║"
 echo -e "╠═══════════════════════════════════════════════════╣"
 echo -e "║                                                   ║"
 echo -e "║  Dashboard:  http://${LOCAL_IP}:7777               ║"

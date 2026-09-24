@@ -1,7 +1,23 @@
-# Wald EMS — Architecture & Site Notes
+# Hörmanns-EMS (technisch: `wald-ems`) — Architecture & Site Notes
+
+## Name und Abgrenzung (seit 24.09.2026)
+Dieses Projekt heißt **Hörmanns-EMS** und läuft am Standort **Hörmanns** (in älteren
+Notizen „beim Bruder"). Der technische Name bleibt bewusst **`wald-ems`**: GitHub-Repo,
+Release-Tarball, Verzeichnis `/opt/ems`, systemd-Dienste `wald-ems` / `wald-ems-client`,
+`wald-ems.yaml`, `wald-ems.db` und der Brain-Slug. Ein Umbenennen dieser Bezeichner
+würde die laufende Pi-Installation vom Update-Pfad abschneiden; nur der Anzeigename
+(Dashboard, Logs, Doku) trägt „Hörmanns-EMS".
+
+Nicht verwechseln:
+- **„WALDEMS"** in Benjis Sprachgebrauch = `wald-energycontrol`, sein eigenes Zuhause in
+  Heidenreichstein (Proxmox `10.10.10.22`). Fork dieses Repos, Ladelogik wandert von dort
+  regelmäßig hierher.
+- **„WaniaEMS"** = `wania-ems`, das Kundenprodukt.
+Der Abschnitt „Site Setup — Heidenreichstein" weiter unten beschreibt Benjis Anlage, nicht
+Hörmanns; er ist aus der Zeit, als dieses Repo dort lief.
 
 ## Overview
-Wald EMS is a self-hosted energy management system for Raspberry Pi, derived from the cloud-based Wania EMS. It combines the Next.js dashboard and Python Modbus client into a single local installation communicating via SQLite.
+Hörmanns-EMS is a self-hosted energy management system for Raspberry Pi, derived from the cloud-based Wania EMS. It combines the Next.js dashboard and Python Modbus client into a single local installation communicating via SQLite.
 
 ## Key Differences from Wania EMS
 - **No Supabase** — SQLite replaces PostgreSQL
@@ -58,7 +74,7 @@ npm run start          # Production server
 ## Network Map (LAN 10.10.10.0/24, Gateway UniFi 10.10.10.1)
 | Host | IP | Funktion |
 |---|---|---|
-| Wald EMS Pi | `10.10.10.22` | Next.js Dashboard auf :7777, SQLite, Modbus-Client |
+| EMS-Host (heute wald-energycontrol) | `10.10.10.22` | Next.js Dashboard auf :7777, SQLite, Modbus-Client |
 | Cerbo GX (Venus OS auf Raspberry Pi 4) | `10.10.10.70` | Victron-Steuerung, GUI v1 + GUI v2, SSH (root + Passwort) |
 | mTec Wärmepumpe (KEBA KeEnergy h1000) | `10.10.10.73` | Web-HMI auf :80, Modbus TCP auf :502 (1-basiert) |
 | Carlo Gavazzi Grid Meter (KX0610183001B) | RS485 → Cerbo | 3-phasiger Hauptzähler |
@@ -530,6 +546,7 @@ pv_w = reg_850 + (reg_808 + reg_809 + reg_810)  # vereinfacht
 | v1.0.42 | Ladesteuerung von Wald Energycontrol portiert | Reife Loadpoint-Logik übernommen (siehe unten) |
 | v1.0.43 | Treiber-Robustheit portiert (NRG Kick + Renault) | Modbus-Lesefehler ≠ 0; dynamische Gigya-Keys (siehe unten) |
 | v1.0.44 | PV-Modus startete nicht / lud aus dem Speicher weiter; update.sh ueberschrieb laufende DB | Stand WEC v1.11.3 portiert (siehe unten) |
+| v1.0.45 | — | Umbenennung in **Hörmanns-EMS** (nur Anzeigename; Slug/Dienste/Pfade bleiben `wald-ems`) |
 
 ### v1.0.44 — PV-Modus-Fix (Stand Wald Energycontrol v1.11.3) + update.sh
 Abgleich gegen das laufende Wald Energycontrol (v1.11.3, 20.09.2026). Der in v1.0.42
@@ -608,7 +625,7 @@ Zustandswechseln geschrieben wurde (on-change), timer der NRG Kick intern ab.
 Fix v1.0.41: Heartbeat schreibt Register 195 in jedem Zyklus bei "now"-Mode.
 
 ### v1.0.42 — Ladesteuerung von Wald Energycontrol übernommen
-Wald EMS (Bruder-Pi) lief auf der alten, einfacheren Loadpoint-Logik. Die
+Hörmanns-EMS (Bruder-Pi) lief auf der alten, einfacheren Loadpoint-Logik. Die
 ausgereifte Regelung aus **Wald Energycontrol** (v1.8.6, Benjis Zuhause) wurde
 nach `core/loadpoint.py` portiert und mit den v1.0.41-Fixes gemerged. Neu:
 

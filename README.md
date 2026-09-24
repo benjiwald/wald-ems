@@ -1,4 +1,4 @@
-# Wald EMS
+# Hörmanns-EMS
 
 Lokales Energiemanagementsystem fuer Raspberry Pi. Inspiriert von [evcc](https://evcc.io).
 
@@ -130,4 +130,4 @@ WALD_EMS_CONFIG=../wald-ems.yaml python main.py
 ## Basiert auf
 
 [Wania EMS](https://github.com/benjiwald/Wania-EMS) — Cloud-basiertes EMS fuer Elektrikerbetriebe.
-Wald EMS ist die lokale Single-Site-Version fuer den Eigengebrauch.
+Hörmanns-EMS ist die lokale Single-Site-Version fuer den Eigengebrauch.

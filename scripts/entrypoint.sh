@@ -20,7 +20,7 @@ echo "Starte Dashboard auf Port ${PORT:-7777}..."
 node /opt/ems/dashboard/server.js &
 DASH_PID=$!
 
-echo "Wald EMS laeuft (Client PID=$CLIENT_PID, Dashboard PID=$DASH_PID)"
+echo "Hörmanns-EMS laeuft (Client PID=$CLIENT_PID, Dashboard PID=$DASH_PID)"
 
 # Auf Signal warten — beide Prozesse sauber beenden
 trap "kill $CLIENT_PID $DASH_PID 2>/dev/null; exit 0" SIGTERM SIGINT

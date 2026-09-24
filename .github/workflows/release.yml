@@ -56,7 +56,7 @@ jobs:
       - name: Create release
         run: |
           gh release create latest \
-            --title "Wald EMS (latest build)" \
+            --title "Hörmanns-EMS (latest build)" \
             --notes "Automatischer Build von \`${{ env.SHORT_SHA }}\` ($(date -u +%Y-%m-%d %H:%M UTC))
 
           **Installation:**

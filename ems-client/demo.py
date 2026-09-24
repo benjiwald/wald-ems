@@ -1,5 +1,5 @@
 """
-Wald EMS — Demo-Modus
+Hörmanns-EMS — Demo-Modus
 Generiert realistische Simulationsdaten wenn keine Hardware verfuegbar ist.
 Aktivierung: demo: true in wald-ems.yaml oder WALD_EMS_DEMO=1
 """

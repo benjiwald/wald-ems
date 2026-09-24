@@ -1,5 +1,5 @@
 [Unit]
-Description=Wald EMS Client (Modbus + Regelung)
+Description=Hörmanns-EMS Client (Modbus + Regelung)
 After=network-online.target
 Wants=network-online.target
 

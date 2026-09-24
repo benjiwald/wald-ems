@@ -1,5 +1,5 @@
 [Unit]
-Description=Wald EMS Dashboard (Next.js)
+Description=Hörmanns-EMS Dashboard (Next.js)
 After=network-online.target
 Wants=network-online.target
 
