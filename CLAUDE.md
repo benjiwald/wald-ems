@@ -549,6 +549,7 @@ pv_w = reg_850 + (reg_808 + reg_809 + reg_810)  # vereinfacht
 | v1.0.45 | — | Umbenennung in **Hörmanns-EMS** (nur Anzeigename; Slug/Dienste/Pfade bleiben `wald-ems`) |
 | v1.0.46 | Ladung pendelte 6↔8,8 A (Hörmanns live, 01.10.2026) | Stand WEC v1.17.1 für loadpoint/site: zeitgleiche Leistungsmessung (v1.11.5), Speicher-Aufnahme (v1.11.6); dazu `min_current: 9` in der YAML |
 | v1.0.47 | Parallele Updates zerschossen Dashboard, Client-Absturz „readonly database" | `update.sh`: flock-Sperre, `tar --no-same-owner`, Reste abgebrochener Läufe entfernen |
+| v1.0.48 | — | Schieberegler PV-Überschuss Auto/Speicher im Dashboard (`set_ev_priority`, `ev_priority_pct` in der YAML), Umlaute in der YAML lesbar |
 
 ### v1.0.47 — Update-Vorfall (Hörmanns, 01.10.2026)
 Mehrere `update.sh` liefen parallel (mehrfacher POST auf `/api/update`; ein POST

@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, type MutableRefObject } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/dashboard/Header";
 import EnergyFlow from "@/components/dashboard/EnergyFlow";
 import LoadpointCard from "@/components/dashboard/LoadpointCard";
 import TelemetryChart from "@/components/dashboard/TelemetryChart";
+import { Battery, Car, SlidersHorizontal } from "lucide-react";
 
 interface SiteState {
   site_name?: string;
@@ -14,6 +15,9 @@ interface SiteState {
   battery_w: number;
   battery_soc: number;
   consumption_w: number;
+  pv_surplus_w?: number;
+  pv_surplus_w_for_ev?: number;
+  ev_priority_pct?: number;
   loadpoints: Array<{
     name: string;
     mode: string;
@@ -48,6 +52,22 @@ interface SiteState {
   updated_at?: string;
 }
 
+type SitePending = { values: Partial<SiteState>; ts: number } | null;
+
+// Ausstehende Site-Aenderungen (PV-Priorisierung) ueber den Live-Stand legen,
+// bis der Client sie bestaetigt. Ohne das sprang der Regler nach dem Loslassen
+// bis zu 10 s zurueck: site_state wird nur alle 10 s geschrieben.
+function applySitePending(data: SiteState, ref: MutableRefObject<SitePending>): SiteState {
+  const p = ref.current;
+  if (!p) return data;
+  if (Date.now() - p.ts > 15000) { ref.current = null; return data; }
+  const confirmed = Object.entries(p.values).every(
+    ([k, v]) => (data as unknown as Record<string, unknown>)[k] === v
+  );
+  if (confirmed) { ref.current = null; return data; }
+  return { ...data, ...p.values };
+}
+
 const EMPTY_STATE: SiteState = {
   grid_w: 0, pv_w: 0, battery_w: 0, battery_soc: 0, consumption_w: 0,
   loadpoints: [],
@@ -58,6 +78,15 @@ export default function Dashboard() {
   const [configChecked, setConfigChecked] = useState(false);
   const [state, setState] = useState<SiteState>(EMPTY_STATE);
   const [connected, setConnected] = useState(false);
+
+  // PV-Priorisierung: waehrend des Ziehens nur lokal anzeigen, an den Client
+  // geht der Wert 300 ms nach der letzten Bewegung (Maus, Touch, Pfeiltasten).
+  const [draggingEvPct, setDraggingEvPct] = useState<number | null>(null);
+  const evPriorityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSiteRef = useRef<SitePending>(null);
+  useEffect(() => () => {
+    if (evPriorityDebounceRef.current) clearTimeout(evPriorityDebounceRef.current);
+  }, []);
 
   // Check if system is configured; redirect to /setup if not
   useEffect(() => {
@@ -83,7 +112,7 @@ export default function Dashboard() {
       es.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          setState(data);
+          setState(applySitePending(data, pendingSiteRef));
           setConnected(true);
         } catch { /* ignore parse errors */ }
       };
@@ -107,7 +136,7 @@ export default function Dashboard() {
     const interval = setInterval(() => {
       fetch("/api/state")
         .then(r => r.ok ? r.json() : null)
-        .then(data => { if (data && !data.status) setState(data); })
+        .then(data => { if (data && !data.status) setState(applySitePending(data, pendingSiteRef)); })
         .catch(() => {});
     }, 10000);
     return () => clearInterval(interval);
@@ -140,6 +169,16 @@ export default function Dashboard() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "set_battery_boost", loadpoint: loadpointName, enable }),
+    });
+  }, []);
+
+  const handleEvPriorityChange = useCallback((pct: number) => {
+    pendingSiteRef.current = { values: { ev_priority_pct: pct }, ts: Date.now() };
+    setState(prev => ({ ...prev, ev_priority_pct: pct }));
+    fetch("/api/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set_ev_priority", pct }),
     });
   }, []);
 
@@ -198,6 +237,53 @@ export default function Dashboard() {
           battery_soc={state.battery_soc}
           consumption_w={state.consumption_w}
         />
+
+        {/* PV-Priorisierung: Auto vs. Speicher */}
+        {state.loadpoints.length > 0 && (() => {
+          const pct = draggingEvPct ?? state.ev_priority_pct ?? 100;
+          const surplus = state.pv_surplus_w ?? 0;
+          // Beim Ziehen aus dem Reglerwert schaetzen, sonst den Wert der Regelung zeigen
+          const evShareW = draggingEvPct != null ? surplus * (draggingEvPct / 100) : (state.pv_surplus_w_for_ev ?? 0);
+          return (
+            <div className="glass-panel rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <SlidersHorizontal className="w-4 h-4 text-muted-foreground" />
+                  PV-Überschuss: Auto oder Speicher
+                </div>
+                <span className="text-xs mono text-muted-foreground">{pct}% Auto</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Battery className="w-4 h-4 text-emerald-400 shrink-0" aria-label="Speicher" />
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={10}
+                  value={pct}
+                  aria-label="Anteil des PV-Überschusses für das Auto"
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setDraggingEvPct(v);
+                    if (evPriorityDebounceRef.current) clearTimeout(evPriorityDebounceRef.current);
+                    evPriorityDebounceRef.current = setTimeout(() => {
+                      handleEvPriorityChange(v);
+                      setDraggingEvPct(null);
+                    }, 300);
+                  }}
+                  className="flex-1 accent-primary cursor-pointer"
+                />
+                <Car className="w-4 h-4 text-blue-400 shrink-0" aria-label="Auto" />
+              </div>
+              {surplus > 0 && (
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Speicher: <span className="mono text-foreground">{((surplus - evShareW) / 1000).toFixed(1)} kW</span> reserviert</span>
+                  <span>Auto: <span className="mono text-foreground">{(evShareW / 1000).toFixed(1)} kW</span> angeboten</span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Loadpoints */}
         {state.loadpoints.length > 0 && (

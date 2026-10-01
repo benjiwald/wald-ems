@@ -258,6 +258,18 @@ def handle_command(cmd: dict):
     elif action == "ping":
         db.publish_log("info", "pong", {"ts": datetime.now(timezone.utc).isoformat()})
 
+    elif action == "set_ev_priority":
+        # Payload: { "pct": 0..100 } — Anteil des PV-Ueberschusses fuers Auto.
+        # 100 = Auto zuerst (Default), der Rest bleibt dem Hausspeicher.
+        pct = max(0.0, min(100.0, float(cmd.get("pct", 100))))
+        if site:
+            site.ev_priority_fraction = pct / 100.0
+        try:
+            config.update_site_field("ev_priority_pct", pct)
+        except Exception as e:
+            log.debug("ev_priority_pct Persist-Fehler: %s", e)
+        db.publish_log("info", f"PV-Priorisierung Auto/Speicher → {pct:.0f}% Auto")
+
     elif action == "reset_loadpoint_estimation":
         # SoC-Estimation-State verwerfen (z.B. nach kaputtem Lazy-Init).
         lp_name = cmd.get("loadpoint", "")

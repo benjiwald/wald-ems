@@ -128,11 +128,29 @@ class ConfigManager:
                 if lp.get("name") == lp_name:
                     lp[field] = value
             with open(self.config_path, "w") as f:
-                yaml.safe_dump(raw, f, default_flow_style=False, sort_keys=False)
+                yaml.safe_dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
             self._mtime = os.path.getmtime(self.config_path)
             log.info("Loadpoint %s: %s=%s → YAML gespeichert", lp_name, field, value)
         except Exception as e:
             log.error("Loadpoint-Feld YAML-Save fehlgeschlagen: %s", e)
+
+    def update_site_field(self, field: str, value):
+        """Aktualisiert ein Site-Feld im Speicher UND in der YAML-Datei.
+
+        Analog zu update_loadpoint_field, aber fuer site_config (ein Dict,
+        kein Array) — z.B. ev_priority_pct.
+        """
+        self.site_config[field] = value
+        try:
+            with open(self.config_path, "r") as f:
+                raw = yaml.safe_load(f) or {}
+            raw.setdefault("site", {})[field] = value
+            with open(self.config_path, "w") as f:
+                yaml.safe_dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            self._mtime = os.path.getmtime(self.config_path)
+            log.info("Site: %s=%s → YAML gespeichert", field, value)
+        except Exception as e:
+            log.error("Site-Feld YAML-Save fehlgeschlagen: %s", e)
 
     def handle_config_push(self, config: dict):
         """Stub — kein MQTT-Push im lokalen Modus."""
