@@ -6,6 +6,23 @@ set -euo pipefail
 # Nutzung: sudo /opt/ems/scripts/update.sh
 # ──────────────────────────────────────────────────────────────────────
 
+if [ "$EUID" -ne 0 ]; then
+    echo "Bitte als root: sudo $0"
+    exit 1
+fi
+
+# Nur EIN Update gleichzeitig. Am 01.10.2026 liefen mehrere Instanzen parallel
+# (mehrfacher POST auf /api/update): gegenseitige tar-Fehler, ein veraltetes
+# .git-Backup wurde zurueckgespielt, eine verwaiste .git/index.lock blieb liegen.
+# Die Sperre haelt bis zum Ende des Skripts (fd 9 bleibt offen).
+LOCK_FILE="/run/wald-ems-update.lock"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    echo "Es laeuft bereits ein Update — dieser Aufruf wird beendet." >> /tmp/wald-ems-update.log
+    echo "Es laeuft bereits ein Update — dieser Aufruf wird beendet."
+    exit 0
+fi
+
 # Update-Log fuer Dashboard-Anzeige
 UPDATE_LOG="/tmp/wald-ems-update.log"
 exec > >(tee -a "$UPDATE_LOG") 2>&1
@@ -24,10 +41,6 @@ RELEASE_URL="https://github.com/${REPO}/releases/latest/download/wald-ems.tar.gz
 echo -e "${GREEN}Hörmanns-EMS Update${NC}"
 echo "═══════════════════════════"
 
-if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}Bitte als root: sudo $0${NC}"
-    exit 1
-fi
 
 if [ ! -d "$INSTALL_DIR" ]; then
     echo -e "${RED}Hörmanns-EMS nicht installiert. Bitte zuerst:${NC}"
@@ -47,6 +60,11 @@ ensure_safe_dir() {
 ensure_safe_dir
 ensure_safe_dir ems
 rm -rf "$INSTALL_DIR"/.git.old-* 2>/dev/null || true
+# Reste abgebrochener Laeufe: eine liegengebliebene index.lock blockiert jedes
+# spaetere git reset; ein vorhandenes /tmp-Backup wuerde cp -a sonst als
+# Unterordner anlegen und am Ende ein VERALTETES .git zurueckspielen.
+if ! pgrep -x git >/dev/null; then rm -f "$INSTALL_DIR/.git/index.lock"; fi
+rm -rf /tmp/wald-ems-git-backup
 
 OLD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
@@ -78,7 +96,12 @@ fi
 
 if curl -fsSL -o /tmp/wald-ems.tar.gz "$RELEASE_URL" 2>/dev/null; then
     echo -e "  Release heruntergeladen — entpacke..."
-    tar -xzf /tmp/wald-ems.tar.gz -C "$INSTALL_DIR"
+    # --no-same-owner: als root uebernimmt tar sonst den Besitzer aus dem Archiv
+    # (uid 1001 vom GitHub-Runner). Dann darf der Dienst-User ems in /opt/ems keine
+    # WAL-Dateien anlegen und der Client stuerzt bei jedem Neustart ab
+    # ("attempt to write a readonly database", 01.10.2026).
+    tar --no-same-owner -xzf /tmp/wald-ems.tar.gz -C "$INSTALL_DIR"
+    chown ems:ems "$INSTALL_DIR"
     rm /tmp/wald-ems.tar.gz
 
     # Auf ARM: better-sqlite3 neu kompilieren (Release ist x86_64)

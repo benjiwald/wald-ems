@@ -59,7 +59,7 @@ echo -e "${YELLOW}[3/6] Hörmanns-EMS herunterladen...${NC}"
 # Versuche fertiges Release (von GitHub Actions gebaut)
 if curl -fsSL -o /tmp/wald-ems.tar.gz "$RELEASE_URL" 2>/dev/null; then
     echo -e "  Pre-built Release gefunden — entpacke..."
-    tar -xzf /tmp/wald-ems.tar.gz -C "$INSTALL_DIR"
+    tar --no-same-owner -xzf /tmp/wald-ems.tar.gz -C "$INSTALL_DIR"
     rm /tmp/wald-ems.tar.gz
     echo -e "${GREEN}  Release installiert${NC}"
 else

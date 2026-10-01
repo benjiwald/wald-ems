@@ -548,6 +548,21 @@ pv_w = reg_850 + (reg_808 + reg_809 + reg_810)  # vereinfacht
 | v1.0.44 | PV-Modus startete nicht / lud aus dem Speicher weiter; update.sh ueberschrieb laufende DB | Stand WEC v1.11.3 portiert (siehe unten) |
 | v1.0.45 | — | Umbenennung in **Hörmanns-EMS** (nur Anzeigename; Slug/Dienste/Pfade bleiben `wald-ems`) |
 | v1.0.46 | Ladung pendelte 6↔8,8 A (Hörmanns live, 01.10.2026) | Stand WEC v1.17.1 für loadpoint/site: zeitgleiche Leistungsmessung (v1.11.5), Speicher-Aufnahme (v1.11.6); dazu `min_current: 9` in der YAML |
+| v1.0.47 | Parallele Updates zerschossen Dashboard, Client-Absturz „readonly database" | `update.sh`: flock-Sperre, `tar --no-same-owner`, Reste abgebrochener Läufe entfernen |
+
+### v1.0.47 — Update-Vorfall (Hörmanns, 01.10.2026)
+Mehrere `update.sh` liefen parallel (mehrfacher POST auf `/api/update`; ein POST
+OHNE `?action=log` startet ein Update!). Folgen, alle auf dem Pi behoben:
+- Dashboard 500: `better-sqlite3` fehlte, weil sich die Läufe beim Entpacken störten.
+- Client-Absturzschleife `attempt to write a readonly database`: root-`tar` setzte
+  `/opt/ems` auf uid 1001 (GitHub-Runner), `ems` konnte keine WAL-Dateien anlegen.
+  Normal korrigiert erst `chown -R` am Skriptende; jeder Client-Neustart dazwischen stirbt.
+- Veraltetes `.git` aus `/tmp/wald-ems-git-backup` zurückgespielt (cp -a in ein bereits
+  existierendes Ziel legt einen Unterordner an), verwaiste `.git/index.lock`.
+Fix: flock-Sperre `/run/wald-ems-update.lock` ganz oben, `tar --no-same-owner` +
+`chown` direkt nach dem Entpacken, alte `/tmp`-Sicherung und `index.lock` vor Beginn
+entfernen. **Update-Log nur per `cat /tmp/wald-ems-update.log` oder
+`POST /api/update?action=log` lesen.**
 
 ### v1.0.46 — Pendeln 6 ↔ 8,8 A (Hörmanns, 01.10.2026)
 Live-Telemetrie: Sollwert 6,0/7,9/8,5/10 A, Ladeleistung 1,46 ↔ 3,7 kW alle 30 s.
