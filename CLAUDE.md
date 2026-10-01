@@ -547,6 +547,25 @@ pv_w = reg_850 + (reg_808 + reg_809 + reg_810)  # vereinfacht
 | v1.0.43 | Treiber-Robustheit portiert (NRG Kick + Renault) | Modbus-Lesefehler ≠ 0; dynamische Gigya-Keys (siehe unten) |
 | v1.0.44 | PV-Modus startete nicht / lud aus dem Speicher weiter; update.sh ueberschrieb laufende DB | Stand WEC v1.11.3 portiert (siehe unten) |
 | v1.0.45 | — | Umbenennung in **Hörmanns-EMS** (nur Anzeigename; Slug/Dienste/Pfade bleiben `wald-ems`) |
+| v1.0.46 | Ladung pendelte 6↔8,8 A (Hörmanns live, 01.10.2026) | Stand WEC v1.17.1 für loadpoint/site: zeitgleiche Leistungsmessung (v1.11.5), Speicher-Aufnahme (v1.11.6); dazu `min_current: 9` in der YAML |
+
+### v1.0.46 — Pendeln 6 ↔ 8,8 A (Hörmanns, 01.10.2026)
+Live-Telemetrie: Sollwert 6,0/7,9/8,5/10 A, Ladeleistung 1,46 ↔ 3,7 kW alle 30 s.
+Zwei Ursachen, die sich aufschaukeln, beide in einer Simulation mit der realen
+Zoe-Kennlinie reproduziert:
+
+1. **Code:** `site.py` rechnete die Hausgrundlast mit der Ladeleistung aus dem
+   VORZYKLUS gegen ein aktuelles `consumption_w`. Jede Leistungsaenderung der Zoe
+   verfaelschte den Ueberschuss um genau diese Differenz, das Ziel sprang in die
+   Gegenrichtung (WEC-Regression aus v1.11.3, dort in v1.11.5 gefixt). Jetzt
+   `Loadpoint.measure_power()` zeitgleich mit den Victron-Werten.
+2. **Config:** `min_current: 2` liess die Regelung in den Bereich 6–8,5 A, in dem
+   die Zoe mit schlechtem cos φ und nichtlinear reagiert (6 A → 1,46 kW, 9 A → 4,65 kW).
+   Der NRG-Treiber klemmt ohnehin auf 6 A. **`min_current: 9` ist Pflicht.**
+
+Simulation (6,3 kW PV, 0,8 kW Haus): alt+min 2 → 6,0↔8,8 A (wie live);
+neu+min 9 → stabil. Bei 4,4 kW Ueberschuss: neu+min 2 pendelt noch 8,3↔9,8 A,
+neu+min 9 steht bei 9,0 A. Start-/Stopschwellen seit WEC v1.11.4: 4,7 / 4,2 kW.
 
 ### v1.0.44 — PV-Modus-Fix (Stand Wald Energycontrol v1.11.3) + update.sh
 Abgleich gegen das laufende Wald Energycontrol (v1.11.3, 20.09.2026). Der in v1.0.42

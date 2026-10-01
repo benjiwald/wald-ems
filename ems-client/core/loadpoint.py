@@ -165,6 +165,7 @@ class Loadpoint:
         self._w_per_a_restored = False
         self._ratio_vehicle_key: str | None = None
         self._ratio_targets: list[float] = []
+        self._fresh_power: tuple[float, float] | None = None  # (ts, W) aus measure_power()
 
         self.charger = charger
         self.meter = meter
@@ -566,15 +567,9 @@ class Loadpoint:
             self._last_written_enabled = True
             log.info("LP %s: Charger beim Start bereits aktiv — Ladezustand uebernommen", self.name)
 
-        # 2. Aktuelle Ladeleistung messen
-        if self._status == "A":
-            self._charging_power_w = 0
-        elif isinstance(self.charger, Meter):
-            self._charging_power_w = abs(self.charger.current_power())
-        elif self.meter:
-            self._charging_power_w = abs(self.meter.current_power())
-        else:
-            self._charging_power_w = 0
+        # 2. Aktuelle Ladeleistung messen (nutzt den Wert, den Site.update() im
+        # selben Zyklus schon frisch gelesen hat — kein zweiter Modbus-Read)
+        self._charging_power_w = 0 if self._status == "A" else self.measure_power()
 
         self._learn_w_per_a()
 
@@ -873,6 +868,30 @@ class Loadpoint:
         )
         return used_w
 
+    def measure_power(self, max_age_s: float = 3.0) -> float:
+        """Frische Ladeleistung direkt vom Charger/Meter.
+
+        Site.update() ruft das zeitgleich mit den Victron-Metriken auf, damit
+        Verbrauch und Ladeleistung denselben Messzeitpunkt haben. Mit dem Wert
+        aus dem Vorzyklus fehlte dem PV-Ueberschuss bei jeder Leistungsaenderung
+        genau die Differenz -> Ziel pendelte 9,5 <-> 13,3 A (20.09.2026).
+        """
+        now = time.time()
+        if self._fresh_power and now - self._fresh_power[0] <= max_age_s:
+            return self._fresh_power[1]
+        try:
+            if isinstance(self.charger, Meter):
+                value = abs(self.charger.current_power())
+            elif self.meter:
+                value = abs(self.meter.current_power())
+            else:
+                return 0.0
+        except Exception as e:
+            log.debug("LP %s: Leistungsmessung fehlgeschlagen: %s", self.name, e)
+            return self._charging_power_w
+        self._fresh_power = (now, value)
+        return value
+
     def _w_per_a_state_key(self) -> str:
         return f"lp_w_per_a_{self.name}"
 
@@ -1075,9 +1094,9 @@ class Loadpoint:
             except Exception:
                 pass
 
-        # Sofort-Modus Heartbeat (Wald EMS v1.0.41): Pause-Register (Reg 195) jeden
-        # Zyklus schreiben. Der NRG Kick Gen2 pausierte beim Bruder-Setup sonst alle
-        # ~5 Minuten; Reg 194 (Strom) allein setzt dessen Session-Timer nicht zurueck.
+        # Sofort-Modus Heartbeat (Hoermanns-EMS v1.0.41): Pause-Register (Reg 195) jeden
+        # Zyklus schreiben. Der NRG Kick Gen2 pausierte in Hoermanns sonst alle ~5 Min;
+        # Reg 194 (Strom) allein setzt dessen Session-Timer nicht zurueck.
         if enable and self.mode == "now" and not need_enable_write:
             try:
                 self.charger.enable(True)

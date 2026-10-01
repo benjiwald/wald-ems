@@ -76,6 +76,12 @@ class Site:
         self.available_w: float = 0
         self.pv_surplus_w: float = 0
         self.pv_surplus_w_for_ev: float = 0  # nach ev_priority_fraction (v1.10)
+        self._bat_cap_w: float = float("inf")  # geschaetzte Aufnahmefaehigkeit des Speichers
+        # Umwandlungsverluste (v1.14), siehe _update_conversion_loss()
+        self.conversion_loss_raw_w: float | None = None
+        self.conversion_loss_w: float | None = None
+        self._conv_loss_ema: float | None = None
+        self._export_cycles: int = 0
 
     def update(self) -> dict:
         """Hauptregelzyklus — alle 30 Sekunden aufrufen.
@@ -145,6 +151,9 @@ class Site:
                     self.consumption_w = self.consumption_meter.current_power()
                 else:
                     self.consumption_w = 0  # Gleicher Meter wie Grid → aus _last_metrics
+
+        # Bilanz-Rest = Umwandlungsverluste (v1.14)
+        self._update_conversion_loss()
 
         # Netzspitze im Viertelstundenraster mitschreiben (v1.11)
         if self.grid_peak:
@@ -226,7 +235,12 @@ class Site:
         # Die Zoe zieht bei 9 A real ~4,65 kW statt nominell 6,2 kW; mit dem
         # Nominalwert wurde die Grundlast um ~1,5 kW zu niedrig und der
         # PV-Ueberschuss entsprechend zu hoch gerechnet.
-        measured_lp_power = sum(lp._charging_power_w for lp in self.loadpoints)
+        # FRISCH lesen, nicht lp._charging_power_w: das stammt aus dem Vorzyklus,
+        # waehrend consumption_w aktuell ist. Die Differenz koppelte jede
+        # Leistungsaenderung des Autos in den Ueberschuss zurueck (Pendeln).
+        measured_lp_power = sum(
+            lp.measure_power() if hasattr(lp, "measure_power") else lp._charging_power_w
+            for lp in self.loadpoints)
         house_base_w = max(0, self.consumption_w - measured_lp_power)
         self.pv_surplus_w = max(0, self.pv_power_w - house_base_w - self.buffer_w)
 
@@ -240,19 +254,28 @@ class Site:
         # anzubieten — kein explizites Batterie-Limit noetig.
         self.pv_surplus_w_for_ev = self.pv_surplus_w * self.ev_priority_fraction
 
-        # Ungenutzten Batterie-Anteil ans Auto umleiten (v1.10.3):
-        # Wenn die Batterie ihren reservierten Anteil nicht abruft (z.B. voll,
-        # Temperatur-Drosselung, Absorption-Tapering am Ladeende), wuerde die
-        # Differenz sonst ungenutzt ins Netz gehen statt dem Auto zuzufliessen.
-        # Bug-Report 18.07.2026: Speicher 100% voll, Slider auf 50/50, nur die
-        # Haelfte des Ueberschusses ging ans Auto, der Rest wurde exportiert
-        # statt dem Auto angeboten zu werden.
-        battery_share_w = self.pv_surplus_w - self.pv_surplus_w_for_ev
-        battery_unused_w = max(0, battery_share_w - max(0, self.battery_power_w))
-        if battery_unused_w > 0:
-            self.pv_surplus_w_for_ev = min(self.pv_surplus_w, self.pv_surplus_w_for_ev + battery_unused_w)
-            log.debug("Batterie nutzt reservierten Anteil nicht (Soll %.0fW, Ist %.0fW, SoC %.0f%%) -> %.0fW zusaetzlich ans Auto",
-                      battery_share_w, self.battery_power_w, self.battery_soc, battery_unused_w)
+        # Speicher kann seinen Anteil nicht aufnehmen -> Rest ans Auto (v1.11.6).
+        #
+        # v1.10.3 verglich dafuer Speicher-Soll mit Speicher-Ist. Das kann nicht
+        # unterscheiden, ob der Speicher nicht KANN oder ob das Auto ihm den Strom
+        # schon weggenommen hat: ein Ueberschwinger des Autos senkte die Speicher-
+        # ladung, galt als "ungenutzt" und hob den Auto-Anteil einseitig bis 100 %.
+        #
+        # Das echte Signal ist Einspeisung trotz Ueberschuss. Daraus wird die
+        # Aufnahmefaehigkeit des Speichers geschaetzt: bei anhaltender Einspeisung
+        # = aktuelle Ladeleistung, sonst langsam wieder hochtasten (nicht bei
+        # vollem Speicher, da gibt es nichts zu ertasten).
+        bat_charge_w = max(0.0, self.battery_power_w)
+        export_w = max(0.0, -self.grid_power_w)
+        self._export_cycles = self._export_cycles + 1 if export_w > 200 else 0
+        if self._export_cycles >= 2:
+            self._bat_cap_w = bat_charge_w
+        elif bat_charge_w > self._bat_cap_w:
+            self._bat_cap_w = bat_charge_w
+        elif self.battery_soc < 98 and export_w < 100 and self._bat_cap_w != float("inf"):
+            self._bat_cap_w += 150
+        battery_take_w = min(self.pv_surplus_w - self.pv_surplus_w_for_ev, self._bat_cap_w)
+        self.pv_surplus_w_for_ev = self.pv_surplus_w - max(0.0, battery_take_w)
 
         # Batterie-Vorrang unter priority_soc:
         # Unter prioritySoc → Batterie hat Vorrang, nichts fuer Loadpoints
@@ -311,6 +334,43 @@ class Site:
 
         return self._build_state()
 
+    # Glaettung der Verlustanzeige: EMA, alpha 0.25 ~ Zeitkonstante 4 Zyklen
+    CONVERSION_LOSS_ALPHA = 0.25
+
+    def _update_conversion_loss(self) -> None:
+        """Bilanz-Rest der Energieflussrechnung (v1.14).
+
+        Vorzeichen (Venus-Register, so auch im restlichen Code verwendet):
+          grid_power_w    + Bezug   / − Einspeisung   (Reg. 820–822, int16)
+          battery_power_w + Laden   / − Entladen      (Reg. 842, int16)
+          pv_power_w      ≥ 0  (DC 850 + AC-PV 808–813)
+          consumption_w   ≥ 0  (AC-Lasten 817–819)
+
+        Quellen = Senken + Verluste:
+          pv + grid = consumption + battery + loss
+          → loss = pv + grid − battery − consumption
+
+        Enthaelt v. a. die DC→AC-Umwandlung MPPT/Batterie → MultiPlus-II
+        (gemessen ~100 W bei 0,7 kW bis ~300 W bei 2,2 kW Durchsatz), die in
+        keinem Venus-Wert auftaucht, dazu Mess-/Zeitversatz-Rauschen.
+
+        conversion_loss_raw_w: ungeglaettet, mit Vorzeichen (Diagnose).
+        conversion_loss_w:     EMA-geglaettet, auf ≥ 0 begrenzt (Anzeige).
+        """
+        if not self.grid_meter:
+            self.conversion_loss_raw_w = None
+            self.conversion_loss_w = None
+            self._conv_loss_ema = None
+            return
+        raw = (self.pv_power_w + self.grid_power_w
+               - self.battery_power_w - self.consumption_w)
+        self.conversion_loss_raw_w = raw
+        prev = self._conv_loss_ema
+        a = self.CONVERSION_LOSS_ALPHA
+        ema = raw if prev is None else prev + a * (raw - prev)
+        self._conv_loss_ema = ema
+        self.conversion_loss_w = max(0.0, ema)
+
     def _read_pv_power(self) -> float:
         """Liest PV-Leistung von allen PV-Quellen."""
         total = 0.0
@@ -349,6 +409,10 @@ class Site:
             "pv_surplus_w": round(self.pv_surplus_w),
             "pv_surplus_w_for_ev": round(self.pv_surplus_w_for_ev),
             "ev_priority_pct": round(self.ev_priority_fraction * 100),
+            "battery_absorb_cap_w": None if self._bat_cap_w == float("inf") else round(self._bat_cap_w),
+            # v1.14: Bilanz-Rest (Umwandlungsverluste), zusaetzliche Felder
+            "conversion_loss_w": None if self.conversion_loss_w is None else round(self.conversion_loss_w),
+            "conversion_loss_raw_w": None if self.conversion_loss_raw_w is None else round(self.conversion_loss_raw_w),
             "loadpoints": [lp.state() for lp in self.loadpoints],
         }
 
@@ -365,6 +429,17 @@ class Site:
                         state["battery_current"] = round(bc, 2)
             except Exception:
                 pass
+
+        # ESS-/DVCC-Einstellungen aus der Venus (v1.15, nur lesend, alle 5 min)
+        for drv in (self.battery, self.grid_meter):
+            if drv is not None and hasattr(drv, "poll_settings"):
+                try:
+                    ess = drv.poll_settings()
+                    if ess:
+                        state["ess"] = ess
+                        break
+                except Exception as e:
+                    log.debug("ESS-Settings nicht lesbar: %s", e)
 
         # Circuit-Status anhängen (wenn konfiguriert)
         circuit_state = self.circuits.state()
